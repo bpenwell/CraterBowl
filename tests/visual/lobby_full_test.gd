@@ -32,7 +32,7 @@ func _run() -> void:
 			break
 	await _refresh()
 	check(game.net.refused_reason.contains("Lobby full"), "joiner refused with a reason: %s" % game.net.refused_reason)
-	check(game.in_lobby() and game.hud.visible and game.hud.text.contains("COULDN'T JOIN") and game.hud.text.contains("Lobby full: 3v3 seats 6 players"), "refused joiner's screen shows why")
+	check(game.in_lobby() and game.hud.visible and game.hud.text.contains("COULDN'T JOIN") and game.hud.text.contains("Lobby full: this 3v3 match has 6 seats"), "refused joiner's screen shows why")
 	check(lobby.players.size() == 6, "host lobby still 6/6")
 	await capture("lobby-full-joiner-refused")
 	game.queue_free()
@@ -53,7 +53,7 @@ func _run() -> void:
 	h._unhandled_key_input(e)
 	await _refresh()
 	check(h.lobby.settings["size"] == 5, "3v3 refused with 7 players present")
-	check(h.hud.text.contains("Can't switch to 3v3") and h.hud.text.contains("7/10 players"), "host lobby shows the seat count and why")
+	check(h.hud.text.contains("Can't switch to 3v3") and h.hud.text.contains("7 of 10 players"), "host lobby shows the seat count and why")
 	await capture("lobby-host-shrink-refused")
 	finish()
 
