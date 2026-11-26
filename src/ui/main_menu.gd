@@ -292,7 +292,7 @@ func _build_play_cluster() -> void:
 	mode_popup = PopupMenu.new()
 	mode_popup.add_theme_font_size_override("font_size", 19)
 	for i in MODES.size():
-		mode_popup.add_item(str(MODES[i]["label"]).to_upper(), i)
+		mode_popup.add_item(caps(str(MODES[i]["label"])), i)
 	mode_popup.id_pressed.connect(func(i): _set_mode(MODES[i]["id"]))
 	add_child(mode_popup)
 	play_button = Button.new()
@@ -436,11 +436,17 @@ func _build_panel() -> void:
 	content_scroll = ScrollContainer.new()
 	content_scroll.name = "PanelScroll"
 	content_scroll.follow_focus = true
+	content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED   # rows wrap, never scroll sideways
 	panel.add_child(content_scroll)
 	content = VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 12)
-	content_scroll.add_child(content)
+	# Gutter so buttons and tables don't run into the scrollbar (#125).
+	var gutter := MarginContainer.new()
+	gutter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gutter.add_theme_constant_override("margin_right", 14)
+	content_scroll.add_child(gutter)
+	gutter.add_child(content)
 	content.minimum_size_changed.connect(_fit_panel, CONNECT_DEFERRED)
 	resized.connect(_fit_panel, CONNECT_DEFERRED)
 
@@ -463,6 +469,12 @@ func _gap(w: int) -> Control:
 	return c
 
 ## Tabs are flat text; the selected one is a filled cyan pill.
+## Uppercase for buttons and chips, but match sizes keep a lowercase v ("5v5"), the way the
+## scorebug writes them (#125: menus mixed "5V5" and "3v3").
+static func caps(t: String) -> String:
+	var re := RegEx.create_from_string("(\\d)V(\\d)")
+	return re.sub(t.to_upper(), "$1v$2", true)
+
 func _style_tab(b: Button, selected: bool) -> void:
 	var clear := UITheme.box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 6)
 	var pill := UITheme.box(UITheme.CYAN, UITheme.CYAN.lightened(0.3), 1, 6)
@@ -499,7 +511,7 @@ func _mode() -> Dictionary:
 func _set_mode(id: String) -> void:
 	mode_id = id
 	var m := _mode()
-	mode_button.text = "   " + str(m["label"]).to_upper()
+	mode_button.text = "   " + caps(str(m["label"]))
 	mode_button.tooltip_text = str(m.get("hint", ""))
 	if settings().home_mode != id:
 		settings().home_mode = id
@@ -641,7 +653,7 @@ func _screen_online() -> void:
 	var j := HBoxContainer.new()
 	j.add_theme_constant_override("separation", 10)
 	content.add_child(j)
-	var code := _line("Invite code (XXXXX-XXXXX) or IP", "", j)
+	var code := _line("Invite code, like 7KQ2M-9XD4T, or an IP address", "", j)
 	code.name = "JoinCode"
 	code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var join := _button("Join", func(): _join(code.text), j)
@@ -751,7 +763,7 @@ func _screen_replays() -> void:
 	if files.is_empty():
 		_text("No saved replays yet. Every finished match is saved here automatically.")
 		return
-	_text("Space pause · ←/→ previous/next play · [ ] speed · Esc menu")
+	_text("Space pause · , . step · ← → previous / next play · H highlights · [ ] speed · C camera · V exit")
 	for f in files.slice(0, 30):
 		_button(f.get_file().get_basename().replace("_", " "), func(): launch.start_game({"replay": f}))
 
@@ -807,9 +819,9 @@ func _screen_settings() -> void:
 		var mh := HBoxContainer.new()
 		mh.add_theme_constant_override("separation", 10)
 		content.add_child(mh)
-		_text("Now playing", mh).custom_minimum_size.x = 200
+		_text("Now playing", mh).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_button("Previous", music.prev, mh)
-		_button("Pause / play", music.toggle_pause, mh)
+		_button("Pause", music.toggle_pause, mh)
 		_button("Next", music.next, mh)
 	content.add_child(UITheme.heading("Online", 22, UITheme.CYAN))
 	var mm := _line("Matchmaker address", s.matchmaker)
@@ -919,18 +931,22 @@ func _party_row() -> void:
 	code.custom_minimum_size = Vector2(150, 0)
 	code.max_length = 8
 	code.editable = party_size >= 2
+	code.visible = party_size >= 2   # hidden for Solo instead of a dead field (#125)
 	code.text_changed.connect(func(t): party_code = t)
 	var gen := _button("New code", func():
 		party_code = new_party_code()
 		code.text = party_code, h)
 	gen.disabled = party_size < 2
+	gen.visible = party_size >= 2
 	var hint := _text("Everyone in the party picks the same size + code, then queues.")
 	hint.add_theme_color_override("font_color", Color(UITheme.REGOLITH, 0.9))
 	hint.visible = party_size >= 2
 	size_ob.item_selected.connect(func(i):
 		party_size = i + 1
 		code.editable = party_size >= 2
+		code.visible = party_size >= 2
 		gen.disabled = party_size < 2
+		gen.visible = party_size >= 2
 		hint.visible = party_size >= 2
 		if party_size >= 2 and party_code == "":
 			party_code = new_party_code()
@@ -975,7 +991,7 @@ func _join(target: String) -> void:
 		_status("Enter an invite code or IP address.")
 		return
 	if not InviteCode.looks_like_code(target) and not target.is_valid_ip_address():
-		_status("That doesn't look like an invite code (XXXXX-XXXXX) or an IP.")
+		_status("That doesn't look like an invite code (10 letters and numbers, like 7KQ2M-9XD4T) or an IP address.")
 		return
 	launch.start_game({"join": target.to_upper() if InviteCode.looks_like_code(target) else target})
 
@@ -1021,7 +1037,7 @@ func _text(t: String, parent: Node = null) -> Label:
 
 func _button(t: String, cb: Callable, parent: Node = null) -> Button:
 	var b := Button.new()
-	b.text = t.to_upper()
+	b.text = caps(t)
 	b.pressed.connect(cb)
 	(parent if parent else content).add_child(b)
 	return b
@@ -1102,7 +1118,7 @@ func _mode_picker() -> void:
 	var group := ButtonGroup.new()
 	for m in [["classic", "Classic"], ["chaosball", "Chaosball (3v3, low-g)"]]:
 		var b := Button.new()
-		b.text = m[1].to_upper()
+		b.text = caps(m[1])
 		b.toggle_mode = true
 		b.button_group = group
 		b.button_pressed = m[0] == pick_mode

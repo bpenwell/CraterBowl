@@ -231,6 +231,15 @@ func _ready() -> void:
 	hud = Label.new()
 	hud.name = "HUD"
 	hud.position = Vector2(16, 16)
+	# Players see this label in the private lobby, the join-refused screen and at the final whistle:
+	# give it a backed panel so it reads over the stadium and jumbotron (#125).
+	var hud_bg := StyleBoxFlat.new()
+	hud_bg.bg_color = Color(0.027, 0.031, 0.059, 0.88)
+	hud_bg.border_color = Color(0.36, 0.88, 1.0, 0.3)
+	hud_bg.set_border_width_all(1)
+	hud_bg.set_corner_radius_all(8)
+	hud_bg.set_content_margin_all(14)
+	hud.add_theme_stylebox_override("normal", hud_bg)
 	var layer := CanvasLayer.new()
 	layer.add_child(hud)
 	crosshair = Control.new()
@@ -1847,10 +1856,11 @@ func _process(delta: float) -> void:
 		return
 	if in_lobby():
 		if is_client() and net.refused_reason != "":
-			hud.text = "COULDN'T JOIN THE MATCH\n%s\n\nAsk the host for a bigger match, or try again later." % net.refused_reason
+			hud.text = "COULDN'T JOIN THE MATCH\n%s\n\nAsk the host to switch to a bigger match size, or try again later." % net.refused_reason
 			return
-		var host_keys := "\nHost: [3/5/7] size   [M] mode   [Q] halves/quarters   [H] period length" if is_server() else ""
-		var lobby_text := "PRIVATE MATCH LOBBY   Invite code: %s\n%s\n[Enter] ready. Starts when everyone is ready.%s" % [lobby.code, lobby.summary(), host_keys]
+		# Player-facing copy (#125): key names first-class, no [bracket] shorthand.
+		var host_keys := "\nAs host:  3 / 5 / 7  team size  ·  M  rules  ·  Q  halves or quarters  ·  H  period length" if is_server() else ""
+		var lobby_text := "PRIVATE MATCH  ·  INVITE CODE  %s\n%s\nPress ENTER when you're ready. The match starts once everyone is ready.%s" % [lobby.code, lobby.summary(), host_keys]
 		if is_server() and lobby.notice != "":
 			lobby_text += "\n" + lobby.notice
 		if is_server() and port_mapping_notice != "":
@@ -1866,8 +1876,11 @@ func _process(delta: float) -> void:
 		clock_txt += " | PLAY %d" % int(ceil(series.clock.play_clock))
 	if series.is_final():
 		var w := series.winner()
-		phase_name = "FINAL: HOME %d - AWAY %d  %s\n%s" % [series.score[0], series.score[1], "TIE" if w < 0 else ("HOME WINS" if w == 0 else "AWAY WINS"),
-			"\n".join(summary_lines) if not summary_lines.is_empty() else "(no stats)"]
+		# Final screen copy (#125): team names, no "(no stats)" placeholder.
+		var tn: Array = Potg.TEAM_NAMES
+		phase_name = "FINAL  ·  %s %d – %s %d  ·  %s" % [tn[0], series.score[0], tn[1], series.score[1], "TIE GAME" if w < 0 else "%s WIN" % tn[w]]
+		if not summary_lines.is_empty():
+			phase_name += "\n" + "\n".join(summary_lines)
 		if my_ranks != "":
 			phase_name += "\nYOUR RANKS: " + my_ranks
 		if ranked_line != "":
@@ -1878,6 +1891,9 @@ func _process(delta: float) -> void:
 			phase_name += "\n" + achievement_line
 	else:
 		phase_name = "HOME %d - AWAY %d | %s | %s | %s | %s" % [series.score[0], series.score[1], clock_txt, situation, side, phase_name]
+	if series.is_final():   # players see this label at the final whistle: no debug readout (#125)
+		hud.text = phase_name
+		return
 	hud.text = "%s   Yard: %.1f  Speed: %.1f yd/s  Stamina: %d%%%s" % [
 		phase_name, m.position.y, m.speed(), int(m.stamina * 100), "  (WINDED)" if m.sprint_locked else ""]
 

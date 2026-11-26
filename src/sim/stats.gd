@@ -189,14 +189,15 @@ func summary_lines() -> Array:
 	for k in keys:
 		var l: Dictionary = lines[k]
 		var parts := []
-		if l["att"] > 0: parts.append("%d/%d %dyd %dTD %dINT" % [l["comp"], l["att"], l["pass_yds"], l["pass_td"], l["int_thrown"]])
-		if l["rec"] > 0: parts.append("%d rec %dyd %dTD" % [l["rec"], l["rec_yds"], l["rec_td"]])
-		if l["car"] > 0: parts.append("%d car %dyd %dTD" % [l["car"], l["rush_yds"], l["rush_td"]])
+		# Box-score style, same wording as the post-game cards (#125).
+		if l["att"] > 0: parts.append("%d/%d, %d YDS, %d TD, %d INT" % [l["comp"], l["att"], l["pass_yds"], l["pass_td"], l["int_thrown"]])
+		if l["rec"] > 0: parts.append("%d REC, %d YDS, %d TD" % [l["rec"], l["rec_yds"], l["rec_td"]])
+		if l["car"] > 0: parts.append("%d CAR, %d YDS, %d TD" % [l["car"], l["rush_yds"], l["rush_td"]])
 		var dfn := []
-		for f in ["tkl", "sack", "int", "pbu", "ff", "fr"]:
-			if l[f] > 0: dfn.append("%d %s" % [l[f], f])
-		for f in [["int_ret_yds", "int ret"], ["fr_ret_yds", "fum ret"]]:
-			if roundi(l[f[0]]) != 0: dfn.append("%dyd %s" % [roundi(l[f[0]]), f[1]])
+		for f in [["tkl", "TKL"], ["sack", "SACK"], ["int", "INT"], ["pbu", "PD"], ["ff", "FF"], ["fr", "FR"]]:
+			if l[f[0]] > 0: dfn.append("%d %s" % [l[f[0]], f[1]])
+		for f in [["int_ret_yds", "INT RET YDS"], ["fr_ret_yds", "FUM RET YDS"]]:
+			if roundi(l[f[0]]) != 0: dfn.append("%d %s" % [roundi(l[f[0]]), f[1]])
 		if not dfn.is_empty(): parts.append(", ".join(dfn))
 		if parts.is_empty():
 			continue

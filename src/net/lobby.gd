@@ -26,7 +26,7 @@ func is_full() -> bool:
 
 ## What a joiner turned away from a full lobby is told.
 func full_reason() -> String:
-	return "Lobby full: %dv%d seats %d players" % [settings["size"], settings["size"], capacity()]
+	return "Lobby full: this %dv%d match has %d seats and they're all taken." % [settings["size"], settings["size"], capacity()]
 
 func add(id: int, name: String = "") -> void:
 	if not players.has(id):
@@ -129,5 +129,5 @@ func summary() -> String:
 		names.append("%s%s" % [players[id]["name"], " ✓" if players[id]["ready"] else ""])
 	var mode_txt := "Chaosball " if settings.get("mode", "classic") == "chaosball" else ""
 	var period := "%d-min quarters" % settings["quarter_minutes"] if settings["quarters"] else "%d-min halves" % settings["half_minutes"]
-	return "%s%dv%d, %s | %d/%d players | %s" % [mode_txt, settings["size"], settings["size"], period,
+	return "%s%dv%d  ·  %s  ·  %d of %d players: %s" % [mode_txt, settings["size"], settings["size"], period,
 		players.size(), capacity(), ", ".join(names)]

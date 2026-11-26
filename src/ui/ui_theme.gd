@@ -106,10 +106,57 @@ static func build() -> Theme:
 	t.set_font("normal_font", "RichTextLabel", body_font())
 	t.set_font("bold_font", "RichTextLabel", body_font(600))
 	t.set_font("mono_font", "RichTextLabel", ThemeDB.fallback_font)
+	_style_default_widgets(t)
 	t.set_stylebox("slider", "HSlider", box(Color(SPACE, 0.9), Color(CYAN, 0.3), 1, 3))
 	t.set_stylebox("grabber_area", "HSlider", box(Color(CYAN, 0.6), CYAN, 0, 3))
 	t.set_stylebox("grabber_area_highlight", "HSlider", box(CYAN, CYAN, 0, 3))
 	return t
+
+## Widgets that still showed Godot's default grey theme (#125): scrollbars, toggles, dropdown
+## arrows, SpinBox arrows, read-only fields. Icons are SVG strings rasterized at load.
+static func _style_default_widgets(t: Theme) -> void:
+	for cls in ["VScrollBar", "HScrollBar"]:
+		var track := box(Color(SPACE, 0.6), Color(0, 0, 0, 0), 0, 4)
+		track.set_content_margin_all(3)
+		t.set_stylebox("scroll", cls, track)
+		t.set_stylebox("scroll_focus", cls, track)
+		for st in [["grabber", 0.35], ["grabber_highlight", 0.6], ["grabber_pressed", 0.85]]:
+			var g := box(Color(CYAN, st[1]), Color(0, 0, 0, 0), 0, 4)
+			g.set_content_margin_all(3)
+			t.set_stylebox(st[0], cls, g)
+	# Toggle rows read as a label with a switch, not as another text field.
+	var clear := box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 6)
+	clear.content_margin_left = 0   # line up with the other settings rows' labels
+	t.set_stylebox("normal", "CheckButton", clear)
+	t.set_font("font", "CheckButton", body_font())
+	t.set_font_size("font_size", "CheckButton", 18)
+	t.set_stylebox("hover", "CheckButton", box(Color(CYAN, 0.08), Color(0, 0, 0, 0), 0, 6))
+	t.set_stylebox("pressed", "CheckButton", clear)
+	t.set_stylebox("hover_pressed", "CheckButton", box(Color(CYAN, 0.08), Color(0, 0, 0, 0), 0, 6))
+	t.set_color("font_pressed_color", "CheckButton", CREAM)
+	t.set_color("font_hover_pressed_color", "CheckButton", CYAN)
+	t.set_icon("checked", "CheckButton", _svg_icon(_switch_svg(true, CYAN)))
+	t.set_icon("unchecked", "CheckButton", _svg_icon(_switch_svg(false, CREAM)))
+	t.set_icon("checked_disabled", "CheckButton", _svg_icon(_switch_svg(true, REGOLITH)))
+	t.set_icon("unchecked_disabled", "CheckButton", _svg_icon(_switch_svg(false, REGOLITH)))
+	var chevron := _svg_icon('<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M3 5l4 4 4-4" fill="none" stroke="#%s" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' % CYAN.to_html(false))
+	t.set_icon("arrow", "OptionButton", chevron)
+	t.set_constant("arrow_margin", "OptionButton", 10)
+	t.set_icon("updown", "SpinBox", _svg_icon('<svg xmlns="http://www.w3.org/2000/svg" width="14" height="22"><path d="M3 8l4-4 4 4M3 14l4 4 4-4" fill="none" stroke="#%s" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' % CYAN.to_html(false)))
+	t.set_stylebox("read_only", "LineEdit", box(Color(SPACE, 0.5), Color(REGOLITH, 0.35)))
+	t.set_color("font_uneditable_color", "LineEdit", Color(CREAM, 0.6))
+
+static func _switch_svg(on: bool, col: Color) -> String:
+	var c := col.to_html(false)
+	var track := '<rect x="1" y="1" width="38" height="20" rx="10" fill="#%s" fill-opacity="%s" stroke="#%s" stroke-opacity="0.6" stroke-width="1.5"/>' % [c, "0.35" if on else "0.08", c]
+	var knob := '<circle cx="%d" cy="11" r="7" fill="#%s"/>' % [29 if on else 11, c]
+	return '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="22">%s%s</svg>' % [track, knob]
+
+static func _svg_icon(svg: String) -> Texture2D:
+	var img := Image.new()
+	if img.load_svg_from_string(svg, 1.0) != OK:
+		return null
+	return ImageTexture.create_from_image(img)
 
 ## Rasterize an SVG at runtime (crisp at any scale, no import step needed).
 ## Exported builds only contain the imported texture, so fall back to load().

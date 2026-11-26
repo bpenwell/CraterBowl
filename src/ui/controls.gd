@@ -22,7 +22,7 @@ const OTHER_CONTROLS := [
 	"QB / passer: mouse aims your view (look up = loft) · hold left click to charge distance, release to throw",
 	"Hold right click: block",
 	"Gamepad: left stick move · right stick QB aim · A snap · B dive · X / Y spin · R3 handoff · RT pass · LT sprint",
-	"Replay viewer: Space pause · Left / Right seek · [ / ] speed",
+	"Replays: Space pause · , . step · ← → previous / next play · H highlights · [ ] speed · C camera",
 ]
 const SYNTH_DEVICE := -42     # marks events we injected (never re-translated)
 const STICK_DEADZONE := 0.4

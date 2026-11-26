@@ -49,7 +49,7 @@ func _run() -> void:
 	game.potg = game._decorate_potg(game.Potg.pick(game.stats.athletes, series.winner()))
 	game.team_totals = game.Potg.team_totals(game.stats.athletes)
 	var ov: Dictionary = game.match_overview()
-	check(ov["my_lines"].any(func(l): return str(l).contains("46yd int ret")), "Ace's post-game line shows the return: %s" % str(ov["my_lines"]))
+	check(ov["my_lines"].any(func(l): return str(l).contains("46 INT RET YDS")), "Ace's post-game line shows the return: %s" % str(ov["my_lines"]))
 	check(ov["potg"].any(func(e): return "   ".join(e["lines"]).contains("46 INT RET YDS")), "players-of-the-game card shows it")
 	launch.go_to_menu("", ov)
 	for frame in 30:
@@ -62,14 +62,14 @@ func _run() -> void:
 		for l in view.find_children("*", "Label", true, false):
 			shown.append(l.text)
 	var txt := "\n".join(shown)
-	check(txt.contains("46yd int ret"), "overview 'Your game' shows INT return yards")
+	check(txt.contains("46 INT RET YDS"), "overview 'Your game' shows INT return yards")
 	check(txt.contains("46 INT RET YDS"), "overview player card shows INT return yards")
 	await _refresh()
 	await capture("return-yards-overview")
 	# Scroll down to "Your game", the local player's own stat line.
 	var mine: Control = null
 	for l in view.find_children("*", "Label", true, false) if view else []:
-		if l.text.contains("46yd int ret"):
+		if l.text.contains("46 INT RET YDS"):
 			mine = l
 	menu.content_scroll.ensure_control_visible(mine)
 	await _refresh()

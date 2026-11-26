@@ -215,7 +215,7 @@ func _setup() -> void:
 			check(current_scene != null and current_scene.scene_file_path == launch.MENU_SCENE, "leave -> back at menu")
 			check(current_scene.current == "home" and launch.last_match.is_empty(), "leaving mid-match shows no overview")
 			launch.go_to_menu("", {"score": [21, 14], "winner": 0, "my_team": 0, "team_names": ["HELIOS", "NEBULA"],
-				"mode": "classic", "size": 5, "me": "Ace", "my_lines": ["QB: 12/18 160yd 2TD 0INT"], "xp": "XP +120 (Level 2)",
+				"mode": "classic", "size": 5, "me": "Ace", "my_lines": ["QB: 12/18, 160 YDS, 2 TD, 0 INT"], "xp": "XP +120 (Level 2)",
 				"teams": [{"pass_yds": 160, "rush_yds": 40, "td": 3}, {"pass_yds": 90, "rush_yds": 70, "td": 2}],
 				"potg": [{"id": 1, "team": 0, "pos": "QB", "name": "Ace", "number": 12, "title": "PLAYER OF THE GAME", "lines": ["12/18  160 YDS  2 TD"]},
 					{"id": 9, "team": 1, "pos": "LB", "name": "CPU", "number": 44, "title": "DEFENSIVE STANDOUT", "lines": ["7 TKL  1 SACK"]}]})],
