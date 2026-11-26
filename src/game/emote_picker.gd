@@ -26,7 +26,7 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 2)
 	add_child(box)
 	_title = Label.new()
-	_title.text = "TAUNT  ·  WHEEL / T"
+	_title.text = "TAUNTS  ·  SCROLL TO PICK, T TO PERFORM"
 	_title.add_theme_font_size_override("font_size", 11)
 	_title.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0, 0.8))
 	box.add_child(_title)

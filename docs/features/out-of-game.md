@@ -29,6 +29,11 @@ Each action appears exactly once. There is no footer bar.
 - **Status messages** ("Host disconnected", bad name…) appear as a toast under the top bar for 6 s.
 - **Esc on Home** opens "Quit Crater Bowl?" (Quit / Keep playing). Settings → About has the build number, Report a bug and Quit game; Settings → Audio has the full music controls.
 
+## Player-facing copy and widgets (#125 Slice C)
+- **Copy rules:** plain words, key names written as the key ("Press ENTER when you're ready", "SNAP  SPACE"), never `[Key]` shorthand; match sizes are "5v5" (lowercase v, `MainMenu.caps()`); box-score stat lines ("12/18, 160 YDS, 2 TD, 0 INT", "46 INT RET YDS"); no raw addresses or placeholders ("Matchmaking is offline right now…"). The private lobby, join-refused and final-whistle text sits on a backed panel; the final screen shows team names and no debug readout.
+- **Widgets:** every Godot control the menus use is themed in `UITheme._style_default_widgets()`: cyan scrollbars, a switch icon for toggles (toggle rows read as a label + switch), chevron dropdown arrows, SpinBox arrows, a read-only LineEdit style. Solo hides the party code field instead of showing a dead one. Panels never scroll sideways and keep a gutter before the scrollbar.
+- `tests/visual/copy_widgets_test.gd` scans every menu screen for shorthand patterns and captures the themed widgets.
+
 ## Menu map
 | Screen | What it does |
 |---|---|

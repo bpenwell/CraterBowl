@@ -17,7 +17,7 @@ static func result_text(ov: Dictionary) -> String:
 
 static func mode_text(ov: Dictionary) -> String:
 	var m := "CHAOSBALL" if ov.get("mode", "") == "chaosball" else "CLASSIC"
-	var t := "%dV%d %s" % [int(ov.get("size", 0)), int(ov.get("size", 0)), m]
+	var t := "%dv%d %s" % [int(ov.get("size", 0)), int(ov.get("size", 0)), m]
 	if ov.get("ranked", false):
 		t += "  ·  RANKED"
 	elif ov.get("online", false):

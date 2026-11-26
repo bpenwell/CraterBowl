@@ -26,7 +26,7 @@ func _ready() -> void:
 	add_theme_constant_override("separation", 6)
 	info = Label.new()
 	info.name = "BrowserInfo"
-	info.text = "Connecting to matchmaker %s…" % address
+	info.text = "Looking for open matches…"
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(info)
 	rows = VBoxContainer.new()
@@ -44,7 +44,7 @@ func _ready() -> void:
 
 func _offline() -> void:
 	state = "offline"
-	info.text = "Matchmaker %s is offline. Quick match, ranked and the browser need it. Hosting and joining with a code still work. Change the address in Settings → Online." % address
+	info.text = "Matchmaking is offline right now, so Quick match, Ranked and this list are unavailable. You can still host a match or join one with an invite code."
 
 func _process(dt: float) -> void:
 	_since += dt

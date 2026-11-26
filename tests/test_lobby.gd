@@ -115,7 +115,7 @@ func test_capacity_is_both_teams_slots() -> void:
 	l.add(6)
 	assert_true(l.is_full(), "6 of 6")
 	assert_true(l.full_reason().contains("Lobby full") and l.full_reason().contains("3v3"), l.full_reason())
-	assert_true(l.summary().contains("6/6 players"), l.summary())
+	assert_true(l.summary().contains("6 of 6 players"), l.summary())
 
 func test_shrinking_below_present_players_is_refused_with_notice() -> void:
 	var l := Lobby.new()

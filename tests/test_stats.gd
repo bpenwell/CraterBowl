@@ -118,7 +118,7 @@ func test_int_return_yards() -> void:
 	assert_near(cb["fr_ret_yds"], 0.0)
 	assert_near(s.total("rush_yds") + s.total("rec_yds") + s.total("pass_yds"), 0.0, 0.001, "no scrimmage yards")
 	assert_eq(int(s.get_line("Bot", "WR")["tkl"]), 1)
-	assert_true(s.summary_lines().any(func(l): return l.begins_with("Ann CB:") and l.contains("28yd int ret")),
+	assert_true(s.summary_lines().any(func(l): return l.begins_with("Ann CB:") and l.contains("28 INT RET YDS")),
 		"post-game line shows it: %s" % str(s.summary_lines()))
 	assert_near(s.athletes[i["cb"]]["int_ret_yds"], 28.0, 0.001, "players-of-the-game line too")
 	# Next play starts clean: a later tackle of the same CB isn't another return.
@@ -142,7 +142,7 @@ func test_fumble_return_yards() -> void:
 	assert_near(cb["fr_ret_yds"], 12.0, 0.001, "recovered at 33, out at 21")
 	assert_near(cb["int_ret_yds"], 0.0)
 	assert_near(s.get_line("Bot", "RB")["rush_yds"], 5.0, 0.001, "run still ends at the fumble")
-	assert_true(s.summary_lines().any(func(l): return l.contains("12yd fum ret")), str(s.summary_lines()))
+	assert_true(s.summary_lines().any(func(l): return l.contains("12 FUM RET YDS")), str(s.summary_lines()))
 	# Own-team recovery isn't a takeaway: no return yards.
 	w.event.emit("snap", {})
 	w.event.emit("handoff", {"to": i["rb"]})
