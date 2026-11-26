@@ -10,6 +10,8 @@ var f := 0
 var ok := true
 var aid := -1
 var snaps := 0
+var echoed_input_seq := 0
+var input_acks_valid := true
 var start_x := INF
 var max_dx := 0.0
 var got_snap_event := false
@@ -54,6 +56,9 @@ func _on_snap(s: Dictionary) -> void:
 	snaps += 1
 	if aid >= 0:
 		last_server_x = (s["a"] as PackedFloat32Array)[aid * 7]
+		var seq: int = s.get("ack", {}).get(aid, 0)
+		input_acks_valid = input_acks_valid and seq >= echoed_input_seq and seq <= main.predictor.seq
+		echoed_input_seq = seq
 	if s.get("dc") == "edge_blitz" and main.world.defensive_call == "edge_blitz":
 		defense_call_seen = true
 	if main.series.clock.label() == "Q1 3:00" and main.series.clock.quarter_length == 180.0:
@@ -72,6 +77,8 @@ func _on_lobby(st: Dictionary) -> void:
 
 func _on_welcome(id: int) -> void:
 	aid = id
+	if first_team < 0 and main.profile.install_id != "":   # once: net_test.sh matches this against what the host received (#102)
+		print("NET client install id %s" % main.profile.install_id)
 	if first_team < 0:
 		first_team = main.world.get_athlete(id).team
 
@@ -146,6 +153,7 @@ func _physics_process(_dt: float) -> bool:
 		check(first_team == 1, "joiner initially placed on the opponent team")
 		check(main.match_size == 5 and main.world.athletes.size() == 10, "client adopted host's 5v5 (%d athletes)" % main.world.athletes.size())
 		check(snaps > 20, "receiving snapshots (%d)" % snaps)
+		check(input_acks_valid and echoed_input_seq > 0, "host acknowledges movement inputs in sequence")
 		check(max_dx > 2.0, "own input moved own athlete on server (dx %.1f)" % max_dx)
 		check(was_locked, "joiner on defense starts in stance")
 		check(broke_stance, "defense Space broke stance via the host (snapshot lock cleared)")

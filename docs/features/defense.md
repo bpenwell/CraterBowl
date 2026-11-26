@@ -11,7 +11,7 @@ non-linemen press Space to break stance and roam up to a visible barrier at the 
 ## How it plays
 
 ### Calling a defense
-- The picker opens each play (**Q** toggles it). Defense buttons: the nine calls plus **Last call** (your team's
+- The picker opens each play (**Q** toggles it). Defense buttons: the nine calls plus **Repeat last** (your team's
   previous call). Any defender can change the call during pre-snap; the host validates it. No defensive calls in Chaosball.
 - Each formation pre-selects `DefensivePlaybook.suggest()`:
 

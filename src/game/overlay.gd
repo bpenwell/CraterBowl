@@ -5,12 +5,20 @@ extends CanvasLayer
 ## search and the final summary.
 
 const Mats := preload("res://src/game/art/materials.gd")
+const UITheme := preload("res://src/ui/ui_theme.gd")
 const T := preload("res://src/sim/tuning.gd")
 const TEAM_NAMES := ["HELIOS", "NEBULA"]
 const TEAM_ABBR := ["HEL", "NEB"]
 const NAVY := Color(0.055, 0.078, 0.14, 0.9)
 const ACCENT := Color(0.36, 0.88, 1.0)
 const ALERT := Color(1.0, 0.42, 0.12)
+## Fixed scorebug width (#116): reserving the play-clock cell keeps the bug from jumping
+## and re-centering at the snap and the whistle. Content wider than this still grows it.
+const BUG_W := 600.0
+## Bottom HUD stack (#116): scorebug flush to the bottom, the movement meters beside it and
+## the status pill on its top-left edge, so nothing floats over the controlled player.
+const BUG_BOTTOM := 14.0
+const STACK_GAP := 8.0
 
 var root: Control
 var bug: PanelContainer
@@ -21,7 +29,9 @@ var timeout_pips: Array[Label] = []
 var clock_l: Label
 var down_l: Label
 var play_clock_l: Label
+var play_clock_div: ColorRect
 var status_l: Label
+var status_pill: PanelContainer
 var mode_l: Label
 var spot_l: Label
 var field_strip: Control
@@ -50,6 +60,8 @@ var _prev := {}
 const TEXT_HZ := 20.0
 var _text_t := 0.0
 var _was_pre_game := true
+## Dead-ball summary (#116): what the last play did, from the world events.
+var _play := {}
 
 func _ready() -> void:
 	layer = 5
@@ -99,7 +111,8 @@ func _build_scorebug() -> void:
 	bug.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	bug.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	bug.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	bug.position.y = -22
+	bug.custom_minimum_size.x = BUG_W
+	bug.position.y = -BUG_BOTTOM
 	root.add_child(bug)
 	var rows := VBoxContainer.new()
 	rows.add_theme_constant_override("separation", 4)
@@ -139,13 +152,21 @@ func _build_scorebug() -> void:
 			row.add_child(_divider())
 	row.add_child(_divider())
 	clock_l = _label(22, Color.WHITE, 700)
+	clock_l.custom_minimum_size.x = 70
+	clock_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(clock_l)
 	row.add_child(_divider())
+	# Down & distance takes the slack, so the bug keeps one width whether or not the play
+	# clock is up; the clock cell and its divider hide together (no empty cell, no stray rule).
 	down_l = _label(22, Color(1.0, 0.86, 0.35), 700)
+	down_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	down_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(down_l)
-	row.add_child(_divider())
+	play_clock_div = _divider()
+	row.add_child(play_clock_div)
 	play_clock_l = _label(22, ACCENT, 800)
-	play_clock_l.custom_minimum_size.x = 36
+	play_clock_l.custom_minimum_size.x = 84
+	play_clock_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(play_clock_l)
 	var details := HBoxContainer.new()
 	details.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -160,12 +181,18 @@ func _build_scorebug() -> void:
 	field_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	field_strip.draw.connect(_draw_field_strip)
 	details.add_child(field_strip)
-	status_l = _label(17, Color(0.88, 0.92, 1.0, 0.95), 600)
-	status_l.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	status_l.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	status_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_l.position.y = -173
-	root.add_child(status_l)
+	# Status pill: a small backed tab on the scorebug's top-left edge, off the player.
+	status_pill = PanelContainer.new()
+	status_pill.name = "StatusPill"
+	var ps := _box(NAVY, 6, Color(ACCENT, 0.35), 1)
+	ps.content_margin_top = 2
+	ps.content_margin_bottom = 2
+	status_pill.add_theme_stylebox_override("panel", ps)
+	status_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	status_pill.visible = false
+	root.add_child(status_pill)
+	status_l = _label(17, Color(0.95, 0.97, 1.0), 700)
+	status_pill.add_child(status_l)
 
 func _divider() -> ColorRect:
 	var d := ColorRect.new()
@@ -176,11 +203,19 @@ func _divider() -> ColorRect:
 func _build_picker() -> void:
 	picker = PanelContainer.new()
 	picker.name = "PlayPicker"
-	picker.add_theme_stylebox_override("panel", _box(NAVY, 8, ACCENT.darkened(0.5), 1))
-	picker.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	var pst := _box(NAVY, 8, ACCENT.darkened(0.5), 1)
+	pst.content_margin_left = 12
+	pst.content_margin_right = 12
+	pst.content_margin_top = 10
+	pst.content_margin_bottom = 12
+	picker.add_theme_stylebox_override("panel", pst)
+	# Menu theme (fonts, button states, selected call) instead of Godot's default widgets.
+	picker.theme = _picker_theme()
+	# Pinned top-right, over the sky: the old center-right spot covered the near receiver.
+	picker.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	picker.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	picker.grow_vertical = Control.GROW_DIRECTION_BOTH
-	picker.position.x = -20
+	picker.grow_vertical = Control.GROW_DIRECTION_END
+	picker.position = Vector2(-16, 16)
 	root.add_child(picker)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 6)
@@ -191,19 +226,43 @@ func _build_picker() -> void:
 	column.add_child(coaching_text)
 	picker_grid = GridContainer.new()
 	picker_grid.columns = 2
+	picker_grid.add_theme_constant_override("h_separation", 6)
+	picker_grid.add_theme_constant_override("v_separation", 6)
 	column.add_child(picker_grid)
 	route_select = OptionButton.new()
 	route_select.focus_mode = Control.FOCUS_NONE
 	column.add_child(route_select)
 
+## UITheme's menu look, compacted for the in-game picker.
+static func _picker_theme() -> Theme:
+	var t: Theme = UITheme.build()
+	t.default_font_size = 17
+	for cls in ["Button", "OptionButton"]:
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			var sb: StyleBoxFlat = (t.get_stylebox(state, cls) as StyleBoxFlat).duplicate()
+			sb.content_margin_left = 12
+			sb.content_margin_right = 12
+			sb.content_margin_top = 3
+			sb.content_margin_bottom = 3
+			t.set_stylebox(state, cls, sb)
+	# The current call reads as selected: solid cyan with dark text.
+	var on := UITheme.box(UITheme.CYAN, UITheme.CYAN, 2)
+	on.content_margin_top = 3
+	on.content_margin_bottom = 3
+	on.content_margin_left = 12
+	on.content_margin_right = 12
+	t.set_stylebox("pressed", "Button", on)
+	t.set_color("font_pressed_color", "Button", UITheme.SPACE)
+	t.set_color("font_hover_pressed_color", "Button", UITheme.SPACE)
+	return t
+
 func _build_me() -> void:
 	me_panel = PanelContainer.new()
 	me_panel.name = "MovementMeters"
-	me_panel.add_theme_stylebox_override("panel", _box(NAVY, 8))
-	me_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	me_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	me_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	me_panel.position.y = -107
+	me_panel.add_theme_stylebox_override("panel", _box(NAVY, 8, Color(1, 1, 1, 0.08), 1))
+	# Beside the scorebug (left), not stacked above it on the player's ring. Placed in
+	# _layout_stack once the bug has its size.
+	me_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	root.add_child(me_panel)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 9)
@@ -263,11 +322,14 @@ func _build_banner() -> void:
 	banner.position.y = -150
 	banner.visible = false
 	root.add_child(banner)
-	banner_sub = _label(24, ACCENT, 700)
+	banner_sub = _label(30, ACCENT, 800)
+	# Outlined like the banner: subtitles land on goalposts and field paint.
+	banner_sub.label_settings.outline_size = 8
+	banner_sub.label_settings.outline_color = Color(0.03, 0.04, 0.1, 0.9)
 	banner_sub.set_anchors_preset(Control.PRESET_CENTER)
 	banner_sub.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	banner_sub.position.y = -60
+	banner_sub.position.y = -55
 	banner_sub.visible = false
 	root.add_child(banner_sub)
 
@@ -291,7 +353,7 @@ func on_event(n: String, d: Dictionary) -> void:
 		"tackle":
 			var credit := float(d.get("progress", 0.0))
 			if credit >= T.FORWARD_PROGRESS_BANNER:
-				show_banner("FORWARD PROGRESS", "+%.1f YD" % credit, ACCENT, 1.6)
+				show_banner("FORWARD PROGRESS", "+%d YD" % maxi(1, roundi(credit)), ACCENT, 1.6)
 		"recovery": show_banner("RECOVERED", "TURNOVER" if d.get("turnover", false) else "", ACCENT)
 		"explode": show_banner("BALL EXPLODED", "", ALERT, 1.6)
 		"clock_warning": show_banner("ONE-MINUTE WARNING", "", ACCENT)
@@ -301,6 +363,27 @@ func on_event(n: String, d: Dictionary) -> void:
 		"snap":
 			if banner.text in ["TIMEOUT", "ONE-MINUTE WARNING"]:
 				banner_t = 0.0
+	_track_play(n, d)
+
+## Remember what the current play did, for the dead-ball summary.
+func _track_play(n: String, d: Dictionary) -> void:
+	var w = _last_world
+	match n:
+		"snap":
+			_play = {"los": w.los_y if w else 0.0, "off": w.offense_team if w else 0,
+				"qb": int(d.get("qb", -1)), "kick": w.kick_play if w else "", "pass": false, "tags": []}
+		"throw":
+			_play["pass"] = true
+		"interception":
+			_play["tags"] = ["INTERCEPTION"]
+		"recovery":
+			if d.get("turnover", false):
+				_play["tags"] = ["FUMBLE LOST"]
+		"tackle", "out_of_bounds":
+			_play["end"] = n
+			_play["carrier"] = int(d.get("carrier", -1))
+			_play["team"] = int(d.get("team", -1))
+			_play["spot"] = d.get("spot", null)
 
 # --- per frame --------------------------------------------------------------
 
@@ -345,14 +428,19 @@ func refresh(main, delta: float) -> void:
 	clock_l.text = "FINAL" if final else ("" if main.drill != null else s.clock.label())
 	down_l.text = _down_text(main)
 	var pc := int(ceil(s.clock.play_clock))
-	play_clock_l.text = "PLAY :%02d" % pc if int(w.phase) == 0 and main.drill == null else ""
+	var clock_up: bool = int(w.phase) == 0 and main.drill == null
+	play_clock_l.text = "PLAY :%02d" % pc if clock_up else ""
+	play_clock_l.visible = clock_up
+	play_clock_div.visible = clock_up
 	play_clock_l.label_settings.font_color = ALERT if pc <= 5 else ACCENT
 	mode_l.text = _mode_text(main)
 	_refresh_field_position(main, final)
 	status_l.text = _status_text(main)
+	status_pill.visible = status_l.text != ""
 	_refresh_me(main)
 	me_panel.visible = not final
 	bug.visible = true
+	_layout_stack()
 	if scoreboard.visible:
 		scoreboard_label.text = "%s     %d – %d     %s\n%s     ·     %s\n%s possession" % [
 			TEAM_NAMES[0], s.score[0], s.score[1], TEAM_NAMES[1], clock_l.text,
@@ -457,18 +545,19 @@ func _status_text(main) -> String:
 			var mine: bool = w.offense_team == w.get_athlete(main.my_id).team
 			if int(s.state) == 3:
 				var won: bool = s.toss_winner == w.get_athlete(main.my_id).team
-				return ("YOU WON THE TOSS  ·  1 RECEIVE  ·  2 KICK" if won else "COIN TOSS  ·  %s CHOOSING" % ("HOME" if s.toss_winner == 0 else "AWAY"))
+				return ("YOU WON THE TOSS  ·  PRESS 1 TO RECEIVE OR 2 TO KICK" if won else "%s IS CHOOSING" % TEAM_NAMES[clampi(s.toss_winner, 0, 1)])
+			# The scorebug already says KICKOFF; the pill only says what to do.
 			if w.kick_play == "kickoff":
-				return "KICKOFF  ·  " + ("J / CLICK TO KICK" if mine else "RETURN TEAM")
+				return "PRESS J OR CLICK TO KICK" if mine else "GET READY TO RETURN"
 			if w.kick_play != "" and mine:
-				return ("PUNT" if w.kick_play == "punt" else "FIELD GOAL") + "  ·  K CHANGE"
+				return ("PUNT" if w.kick_play == "punt" else "FIELD GOAL") + "  ·  PRESS K TO CHANGE"
 			return ""
 		1:
 			if main.world.is_chaos():
 				return "PASS CLOCK %.1f" % maxf(0.0, main.T.PASS_CLOCK - w.hold_t)
 			return "MEET THE BACK" if w.handoff_receiver(main.my_id) == null and w.is_run_play() and w.ball.is_held_by(main.my_id) else ""
 		_:
-			return main.last_whistle
+			return whistle_summary(main.last_whistle, main.world)
 
 func _refresh_picker(main, final: bool) -> void:
 	var w = main.world
@@ -501,7 +590,7 @@ func _refresh_picker(main, final: bool) -> void:
 			b.toggle_mode = true
 			b.pressed.connect(func(): main.do_action({"a": "play" if offense else "defense", "p": call}))
 			picker_grid.add_child(b)
-		for action in ([["Last play", "recall_call"], ["Flip play", "flip_play"]] if offense else [["Last call", "recall_call"]]):
+		for action in ([["Repeat last", "recall_call"], ["Flip play", "flip_play"]] if offense else [["Repeat last", "recall_call"]]):
 			var b := Button.new()
 			b.text = action[0]
 			b.focus_mode = Control.FOCUS_NONE
@@ -528,3 +617,51 @@ func _refresh_me(main) -> void:
 		move_charge = a.move_charge
 		for circle in move_circles:
 			circle.queue_redraw()
+
+## Short player-facing dead-ball line ("TACKLED · +3", "SACK · -5", "INCOMPLETE") instead
+## of the raw whistle code (#116). Offense attacks +y, so yards = spot - line of scrimmage.
+func whistle_summary(code: String, w) -> String:
+	if code == "":
+		return ""
+	var tags: Array = _play.get("tags", [])
+	if not tags.is_empty():
+		return str(tags[0])
+	match code:
+		"INCOMPLETE", "BREAKUP":
+			return "INCOMPLETE" if code == "INCOMPLETE" else "PASS BROKEN UP"
+		"EXPLODE":
+			return "BALL EXPLODED"
+		"TOUCHBACK":
+			return "TOUCHBACK"
+		"DOWNED":
+			return "KICK DOWNED"
+		"FIELD GOAL GOOD":
+			return "FIELD GOAL IS GOOD"
+		"FIELD GOAL NO GOOD":
+			return "FIELD GOAL MISSED"
+	var label: String = {"TACKLE": "TACKLED", "OUT OF BOUNDS": "OUT OF BOUNDS"}.get(code, code)
+	var spot = _play.get("spot", null)
+	var scrimmage: bool = str(_play.get("kick", "")) == "" and _play.has("los")
+	if code not in ["TACKLE", "OUT OF BOUNDS"] or not scrimmage or not spot is Vector2 or int(_play.get("team", -1)) != int(_play.get("off", -2)):
+		return label
+	var y: float = spot.y
+	if w != null:
+		y = clampf(y, w.field.goal_line_a(), w.field.goal_line_b())
+	var yd := roundi(y - float(_play["los"]))
+	if code == "TACKLE" and yd < 0 and not _play.get("pass", false) and int(_play.get("carrier", -1)) == int(_play.get("qb", -2)):
+		label = "SACK"
+	return "%s  ·  %s" % [label, "NO GAIN" if yd == 0 else ("%+d" % yd)]
+
+## Bottom stack: scorebug centered on the bottom edge, movement meters to its left with
+## their bottoms lined up, status pill on its top-left corner.
+func _layout_stack() -> void:
+	var vp := root.size
+	var br := bug.get_rect()
+	var bug_left := (vp.x - br.size.x) * 0.5
+	var bug_top := vp.y - BUG_BOTTOM - br.size.y
+	var ms := me_panel.get_combined_minimum_size()
+	me_panel.size = ms
+	me_panel.position = Vector2(bug_left - STACK_GAP - ms.x, vp.y - BUG_BOTTOM - ms.y - (br.size.y - ms.y) * 0.5)
+	var pm := status_pill.get_combined_minimum_size()
+	status_pill.size = pm
+	status_pill.position = Vector2(bug_left, bug_top - 4.0 - pm.y)

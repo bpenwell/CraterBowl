@@ -48,6 +48,70 @@ static func _routes_array(w) -> PackedInt32Array:
 		out[i] = Routes.route_index(w.route_of.get(i, "")) if w.route_of.has(i) else -1
 	return out
 
+## Validate the entire snapshot before it can advance the client tick or write game state.
+static func valid_snapshot(s: Dictionary, athletes: int) -> bool:
+	for key in ["ph", "off", "ms", "tp"]:
+		if not (s.get(key) is int):
+			return false
+	if s["ph"] not in [0, 1, 2] or s["off"] not in [0, 1] or s["ms"] not in [0, 1, 2, 3]:
+		return false
+	if not _finite_number(s.get("los")) or not (s.get("fpt") is bool):
+		return false
+	if not _float_fields(s.get("a"), athletes * 7) or not _float_fields(s.get("b"), 8):
+		return false
+	if not _float_fields(s.get("d"), 4) or not _float_fields(s.get("c"), 4, 6):
+		return false
+	if not _int_fields(s.get("r"), athletes * 3) or not _int_fields(s.get("s"), 2):
+		return false
+	if s.has("moves") and not _float_fields(s["moves"], athletes * 2):
+		return false
+	if s.has("cs") and not _float_fields(s["cs"], 2):
+		return false
+	if s.has("rt") and not _int_fields(s["rt"], athletes):
+		return false
+	if s.has("to") and not _int_fields(s["to"], 2):
+		return false
+	if s["b"][0] not in [0.0, 1.0, 2.0, 3.0] or s["b"][1] < -1 or s["b"][1] >= athletes:
+		return false
+	if s["d"][0] not in [0.0, 1.0] or s["d"][1] < 1 or s["d"][1] > 4:
+		return false
+	for i in athletes:
+		if s["r"][i * 3] < 0 or s["r"][i * 3] > 8:
+			return false
+	for key in ["pl", "dc", "kp"]:
+		if not (s.get(key, "") is String):
+			return false
+	for key in ["rf", "kk"]:
+		if not (s.get(key, false) is bool):
+			return false
+	var possession = s.get("pt", s["off"])
+	var toss = s.get("tw", -1)
+	if not (possession is int and possession in [0, 1] and toss is int and toss in [-1, 0, 1]):
+		return false
+	if not _finite_number(s.get("hc", 0.0)):
+		return false
+	var acks = s.get("ack", {})
+	if not (acks is Dictionary) or acks.size() > athletes:
+		return false
+	for aid in acks:
+		if not (aid is int and aid >= 0 and aid < athletes and acks[aid] is int and acks[aid] >= 0):
+			return false
+	return true
+
+static func _float_fields(values, count: int, max_count := -1) -> bool:
+	if not (values is PackedFloat32Array) or values.size() < count or values.size() > maxi(count, max_count):
+		return false
+	for value in values:
+		if not is_finite(value):
+			return false
+	return true
+
+static func _int_fields(values, count: int) -> bool:
+	return values is PackedInt32Array and values.size() == count
+
+static func _finite_number(value) -> bool:
+	return (value is float or value is int) and is_finite(float(value))
+
 static func apply_snapshot(m, s: Dictionary) -> void:
 	var w = m.world
 	w.phase = s["ph"]

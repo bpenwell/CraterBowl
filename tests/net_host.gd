@@ -7,6 +7,7 @@ var saw_live := false
 var presnap_time := 0.0
 var prepared_handoff := false
 var set_quarters := false
+var reported_ids := false
 
 func _initialize() -> void:
 	main = load("res://scenes/main.tscn").instantiate()
@@ -21,6 +22,10 @@ func _physics_process(dt: float) -> bool:
 			_key(KEY_H)
 			set_quarters = true
 		return false
+	if not reported_ids:   # match started: the joiner's install id came in through the lobby (#102)
+		reported_ids = true
+		for peer in main.peer_installs:
+			print("NET host got install id %s" % main.peer_installs[peer])
 	if main.world.phase == main.World.Phase.LIVE:
 		saw_live = true
 	if saw_live and main.world.phase == main.World.Phase.PRESNAP:

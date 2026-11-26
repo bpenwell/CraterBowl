@@ -10,11 +10,14 @@ signal peer_left(peer_id: int, athlete_id: int)
 signal lobby_received(state: Dictionary)
 signal lobby_changed()
 signal refused(reason: String)
+signal connection_failed()     # client: the initial connection never reached the host
 signal host_lost()             # client: the host went away (quit, crashed, timed out) mid-session
 
 const P := preload("res://src/net/protocol.gd")
 const DEFAULT_PORT := 24565
 const MAX_PEERS := 13
+const INPUT_BUFFER_LIMIT := 6  # 100 ms at the 60 Hz sim rate
+const NO_INPUT := {}
 const REFUSE_GRACE := 1.0      # s: server drops a refused peer after this (the client normally hangs up first)
 const FULL_MATCH_REASON := "Match full: every seat is taken"
 
@@ -26,7 +29,8 @@ var api: SceneMultiplayer
 var assign_fn: Callable       # server: func(peer_id) -> athlete_id or -1
 var release_fn: Callable      # server: func(peer_id)
 var peer_athlete := {}         # server: peer_id -> athlete_id
-var inputs := {}               # server: athlete_id -> sanitized input
+var _input_queues := {}        # server: athlete_id -> pending movement commands
+var _input_acks := {}          # server: athlete_id -> last consumed sequence
 var actions: Array = []        # server: [[peer_id, athlete_id, action], ...] pending
 var my_athlete := -1           # client
 var match_size := 7            # server: sent in welcome
@@ -65,8 +69,15 @@ func join(address: String, port: int) -> Error:
 	api.multiplayer_peer = peer
 	if not api.server_disconnected.is_connected(_on_server_disconnected):
 		api.server_disconnected.connect(_on_server_disconnected)
+	if not api.connection_failed.is_connected(_on_connection_failed):
+		api.connection_failed.connect(_on_connection_failed)
 	mode = Mode.CLIENT
 	return OK
+
+func _on_connection_failed() -> void:
+	if mode == Mode.CLIENT:
+		mode = Mode.OFFLINE
+		connection_failed.emit()
 
 ## Client: the connection to the host dropped. A refused client hung up on purpose
 ## (and already shows why), so only an unexpected loss counts.
@@ -110,7 +121,7 @@ func refuse(id: int, reason: String) -> void:
 ## Server: (re)assign a peer to an athlete and tell them.
 func set_assignment(id: int, aid: int) -> void:
 	if peer_athlete.has(id):
-		inputs.erase(peer_athlete[id])
+		_clear_inputs(peer_athlete[id])
 	peer_athlete[id] = aid
 	_send(id, {"k": "welcome", "aid": aid, "size": match_size, "mode": match_mode}, true)
 
@@ -121,9 +132,41 @@ func _on_peer_disconnected(id: int) -> void:
 	if peer_athlete.has(id):
 		var aid: int = peer_athlete[id]
 		peer_athlete.erase(id)
-		inputs.erase(aid)
+		_clear_inputs(aid)
 		release_fn.call(id)
 		peer_left.emit(id, aid)
+
+func _clear_inputs(aid: int) -> void:
+	_input_queues.erase(aid)
+	_input_acks.erase(aid)
+
+func _queue_input(aid: int, input: Dictionary) -> void:
+	if input.is_empty():
+		return
+	if not _input_queues.has(aid):
+		_input_queues[aid] = []
+	var pending: Array = _input_queues[aid]
+	var latest: int = _input_acks.get(aid, -1) if pending.is_empty() else pending.back()["seq"]
+	if input["seq"] <= latest:
+		return
+	if pending.size() == INPUT_BUFFER_LIMIT:
+		pending.pop_front()
+	pending.append(input)
+
+## Server: consume at most one movement command per remote athlete per sim tick.
+func take_input(aid: int) -> Dictionary:
+	if not _input_queues.has(aid):
+		return NO_INPUT
+	var pending: Array = _input_queues[aid]
+	if pending.is_empty():
+		return NO_INPUT
+	var input: Dictionary = pending.pop_front()
+	_input_acks[aid] = input["seq"]
+	return input
+
+## Server: athlete_id -> last consumed input seq (for client reconciliation).
+func acks() -> Dictionary:
+	return _input_acks.duplicate()
 
 func broadcast_snapshot(snap: Dictionary) -> void:
 	if mode == Mode.SERVER and not peer_athlete.is_empty():
@@ -156,13 +199,6 @@ func send_input(dir: Vector2, sprint: bool, seq: int = 0, block := false) -> voi
 	if mode == Mode.CLIENT and my_athlete >= 0:
 		_send(1, {"k": "in", "dir": dir, "spr": sprint, "seq": seq, "block": block}, false)
 
-## Server: athlete_id -> last processed input seq (for client reconciliation).
-func acks() -> Dictionary:
-	var out := {}
-	for aid in inputs:
-		out[aid] = inputs[aid].get("seq", 0)
-	return out
-
 func send_action(action: Dictionary) -> void:
 	if mode == Mode.CLIENT and my_athlete >= 0:
 		_send(1, {"k": "act", "act": action}, true)
@@ -184,11 +220,7 @@ func _on_packet(from: int, bytes: PackedByteArray) -> void:
 				peer.close.call_deferred()
 		"in":
 			if mode == Mode.SERVER and peer_athlete.has(from):
-				var inp := P.sanitize_input(msg)
-				var aid: int = peer_athlete[from]
-				# unreliable-ordered, but never go backwards in seq
-				if not inp.is_empty() and inp["seq"] >= inputs.get(aid, {}).get("seq", -1):
-					inputs[aid] = inp
+				_queue_input(peer_athlete[from], P.sanitize_input(msg))
 		"act":
 			if mode == Mode.SERVER and peer_athlete.has(from) and P.is_action(msg.get("act")):
 				actions.append([from, peer_athlete[from], msg["act"]])
@@ -200,14 +232,26 @@ func _on_packet(from: int, bytes: PackedByteArray) -> void:
 				lobby_received.emit(msg["s"])
 		"welcome":
 			if mode == Mode.CLIENT and from == 1:
-				my_athlete = int(msg.get("aid", -1))
-				var sz = msg.get("size", 7)
-				host_size = int(sz) if (sz is int and (sz == 3 or sz == 5 or sz == 7)) else 7
-				host_mode = "chaosball" if msg.get("mode", "") == "chaosball" else "classic"
+				var size = msg.get("size", 7)
+				var rules = msg.get("mode", "classic")
+				var aid = msg.get("aid")
+				if not (size is int and size in [3, 5, 7]):
+					return
+				if not (rules is String and rules in ["classic", "chaosball"]):
+					return
+				# Chaosball always creates a 3v3 world, independently of the supplied size.
+				var team_size: int = 3 if rules == "chaosball" else size
+				if not (aid is int and aid >= 0 and aid < team_size * 2):
+					return
+				host_size = team_size
+				host_mode = rules
+				my_athlete = aid
 				welcomed.emit(my_athlete)
 		"snap":
-			if mode == Mode.CLIENT and from == 1 and int(msg.get("t", -1)) > last_snapshot_tick:
-				last_snapshot_tick = int(msg["t"])
+			var tick = msg.get("t")
+			if (mode == Mode.CLIENT and from == 1 and tick is int and tick > last_snapshot_tick
+					and P.valid_snapshot(msg, host_size * 2)):
+				last_snapshot_tick = tick
 				snapshot_received.emit(msg)
 		"ev":
 			if mode == Mode.CLIENT and from == 1:

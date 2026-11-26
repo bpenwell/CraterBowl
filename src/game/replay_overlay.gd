@@ -10,7 +10,7 @@ const ACCENT := Color(0.36, 0.88, 1.0)
 const REC := Color(1.0, 0.26, 0.22)
 const GOLD := Color(1.0, 0.86, 0.3)
 ## Live-only match-overlay widgets hidden during a replay (missing names are skipped).
-const LIVE_WIDGETS := ["card", "picker", "coaching_text", "me_panel", "hints", "throw_panel", "mode_l"]
+const LIVE_WIDGETS := ["card", "picker", "coaching_text", "me_panel", "hints", "throw_panel", "mode_l", "status_pill"]
 
 var main
 var root: Control
@@ -22,7 +22,10 @@ var ctx_l: Label
 var summary_l: Label
 var bar: ProgressBar
 var bar_fill: StyleBoxFlat
-var hints_l: Label
+## Key hints: a backed bar of [key] action pairs above the scorebug (#116).
+var hint_bar: PanelContainer
+var hint_row: HBoxContainer
+var _hint_keys := ""
 var _blink := 0.0
 var _hidden: Array = []   # match-overlay widgets hidden during the replay, restored after
 
@@ -75,13 +78,17 @@ func _ready() -> void:
 	bar_fill = _box(REC, 3)
 	bar.add_theme_stylebox_override("fill", bar_fill)
 	col.add_child(bar)
-	hints_l = _label(13, Color(0.9, 0.94, 1.0, 0.95), 600)
-	hints_l.label_settings.outline_size = 6   # stays legible over white field paint
-	hints_l.label_settings.outline_color = Color(0.03, 0.04, 0.1, 0.9)
-	hints_l.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hints_l.position = Vector2(18, -84)
-	hints_l.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	root.add_child(hints_l)
+	hint_bar = PanelContainer.new()
+	hint_bar.name = "ReplayHints"
+	var hb := _box(NAVY, 6, Color(1, 1, 1, 0.08), 1)
+	hb.content_margin_top = 4
+	hb.content_margin_bottom = 4
+	hint_bar.add_theme_stylebox_override("panel", hb)
+	hint_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(hint_bar)
+	hint_row = HBoxContainer.new()
+	hint_row.add_theme_constant_override("separation", 16)
+	hint_bar.add_child(hint_row)
 
 static func _box(bg: Color, radius: int = 6, border: Color = Color(0, 0, 0, 0), bw: int = 0) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -143,7 +150,7 @@ func _process(delta: float) -> void:
 	elif r.effective_speed() < r.speed:
 		spd = "SLOW-MO"
 	speed_l.text = spd
-	cam_l.text = "CAM: %s" % str(main.REPLAY_CAMS[main.replay_cam]).to_upper()
+	cam_l.text = "%s VIEW" % str(main.REPLAY_CAMS[main.replay_cam]).to_upper()
 	var summary := str(play.get("summary", ""))
 	summary_l.text = (summary if summary != "" else str(play.get("label", ""))).to_upper()
 	var ctx := "PLAY %d" % (p + 1)
@@ -151,10 +158,53 @@ func _process(delta: float) -> void:
 		ctx += "  ·  " + str(play["context"]).to_upper()
 	var hs: int = r.highlights().size()
 	if hs > 0:
-		ctx += "  ·  %d HIGHLIGHT%s [H]" % [hs, "" if hs == 1 else "S"]
+		ctx += "  ·  %d HIGHLIGHT%s" % [hs, "" if hs == 1 else "S"]
 	ctx_l.text = ctx
 	bar.value = r.progress()
 	_blink += delta
 	dot.modulate.a = 1.0 if r.paused or fmod(_blink, 1.0) < 0.6 else 0.2
-	var leave := "V  EXIT" if main.replay_viewer else ("V / ENTER  SKIP" if main.replay_auto or main.replay_reel else "V / ENTER  BACK TO GAME")
-	hints_l.text = "%s     SPACE  PAUSE     , .  FRAME     ← →  PLAYS     H  HIGHLIGHT     [ ]  SPEED     C  CAMERA" % leave
+	var leave := ["V", "Exit"] if main.replay_viewer else (["V / Enter", "Skip"] if main.replay_auto or main.replay_reel else ["V / Enter", "Back to game"])
+	_set_hints([leave, ["Space", "Pause"], [", .", "Step"], ["← →", "Prev / next play"], ["H", "Highlights"], ["[ ]", "Speed"], ["C", "Camera"]])
+	_place_hints()
+
+## Rebuild the hint bar only when the key set changes.
+func _set_hints(pairs: Array) -> void:
+	var key := str(pairs)
+	if key == _hint_keys:
+		return
+	_hint_keys = key
+	for c in hint_row.get_children():
+		hint_row.remove_child(c)
+		c.queue_free()
+	for pair in pairs:
+		var cell := HBoxContainer.new()
+		cell.add_theme_constant_override("separation", 6)
+		var cap := PanelContainer.new()
+		var cs := _box(Color(1, 1, 1, 0.1), 4, Color(1, 1, 1, 0.35), 1)
+		cs.content_margin_left = 6
+		cs.content_margin_right = 6
+		cs.content_margin_top = 0
+		cs.content_margin_bottom = 1
+		cap.add_theme_stylebox_override("panel", cs)
+		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var k := _label(13, Color.WHITE, 800)
+		k.label_settings.shadow_size = 0
+		k.text = str(pair[0]).to_upper()
+		cap.add_child(k)
+		cell.add_child(cap)
+		var a := _label(14, Color(0.85, 0.9, 1.0), 600)
+		a.label_settings.shadow_size = 0
+		a.text = str(pair[1])
+		a.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cell.add_child(a)
+		hint_row.add_child(cell)
+
+## Center the bar a few px above the scorebug (or the bottom edge if there is none).
+func _place_hints() -> void:
+	var size := hint_bar.get_combined_minimum_size()
+	hint_bar.size = size
+	var bottom := root.size.y - 14.0
+	var o = main.pres.overlay if main.pres else null
+	if o != null and o.get("bug") is Control and o.bug.is_visible_in_tree():
+		bottom = o.bug.get_global_rect().position.y - 8.0
+	hint_bar.position = Vector2((root.size.x - size.x) * 0.5, bottom - size.y)

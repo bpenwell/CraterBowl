@@ -24,6 +24,7 @@ func queue_up(address: String, port: int, mode: String, size: int, rating: float
 	api.multiplayer_peer = peer
 	_req = {"k": "enq", "mode": mode, "size": size, "rating": rating, "name": name, "party": party, "party_size": party_size, "game": game, "seat": seat}
 	api.connected_to_server.connect(func(): _send(_req))
+	api.connection_failed.connect(func(): failed.emit())
 	return OK
 
 ## Connect without queueing (server browser / lobby advertising). Emits connected|failed.

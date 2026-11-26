@@ -22,6 +22,12 @@ grep -E "NET " .net-client.log
 if [ $status -ne 0 ] || grep -E "SCRIPT ERROR|Parse Error" .net-client.log .net-host.log | grep -q .; then
   grep -E "SCRIPT ERROR|Parse Error|at: " .net-client.log .net-host.log | head; echo "NET TEST FAIL"; exit 1
 fi
+# #102: the host keys ranked records by the joiner's install id, sent as a lobby action.
+CID=$(grep -oE "NET client install id [0-9a-f]{16,32}" .net-client.log | awk '{print $5}')
+if [ -z "$CID" ] || ! grep -q "NET host got install id $CID" .net-host.log; then
+  echo "NET TEST FAIL: host didn't receive the client's install id (client '${CID:-<none>}', host: $(grep 'NET host got install id' .net-host.log | head -1))"; exit 1
+fi
+echo "NET install id reached the host: $CID"
 # Host loss (#56): a client in the match whose host dies (SIGKILL: no goodbye packet)
 # must return to the menu with "Host disconnected".
 PORT2=$((PORT + 1000))

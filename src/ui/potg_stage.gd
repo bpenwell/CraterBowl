@@ -35,6 +35,7 @@ var tags: Array = []     # small name tag per entry (group shot)
 var header: Label
 var sub: Label
 var hint: Label
+var hint_box: PanelContainer
 var confetti: CPUParticles3D
 var _cam_pos := Vector3(0, 3.2, 11.0)
 var _cam_look := Vector3(0, 1.0, 0)
@@ -105,9 +106,10 @@ func _process(delta: float) -> void:
 	var want_look := Vector3(0, 1.1, 0)
 	if step >= 0 and step < entries.size():
 		var p: Vector3 = pad_pos[step]
-		# Look right of the athlete so they sit in the left third, clear of the card.
-		want_pos = p + Vector3(0.7 - step_t * 0.08, 1.5, 4.4 - step_t * 0.22)
-		want_look = p + Vector3(1.0, 1.0, 0)
+		# Look right of the athlete so they sit in the left third, clear of the card. Far
+		# enough back that the pad's rings stay in frame (#116: they were cut off).
+		want_pos = p + Vector3(0.9 - step_t * 0.06, 1.75, 5.9 - step_t * 0.18)
+		want_look = p + Vector3(1.3, 0.85, 0)
 	elif step >= entries.size():
 		want_pos = Vector3(sin(step_t * 0.3) * 0.6, 2.3, 9.2 - step_t * 0.2)
 	var k := clampf(delta * 3.2, 0.0, 1.0)
@@ -146,11 +148,14 @@ func _enter(s: int) -> void:
 			c.modulate.a = 0.0
 			c.position = Vector2(size.x * 0.56 + 140.0, size.y * 0.24)
 		(spots[i] as SpotLight3D).light_energy = 14.0 if focus or group else (3.0 if step < 0 else 1.2)
+		# During a spotlight only the featured player stands on stage, so the next player
+		# never shows through the stat card (#116).
+		(views[i] as Node3D).visible = focus or group or step < 0
 		tags[i].visible = group
 		if group:
 			tags[i].modulate.a = 0.0
 	confetti.emitting = group
-	hint.text = "SPACE NEXT  ·  S SKIP" if not group else "SPACE CONTINUE TO LOBBY"
+	hint.text = "PRESS SPACE FOR THE NEXT PLAYER  ·  S TO SKIP" if not group else "PRESS SPACE TO CONTINUE"
 
 # ---------------------------------------------------------------- 3D stage
 func _team_color(t: int) -> Color:
@@ -371,12 +376,21 @@ func _build_ui() -> void:
 	sub = _label("FINAL  ·  %s %d  –  %d %s" % [names[0], sc[0], sc[1], names[1]], 22, Color(C.CREAM, 0.85))
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	top.add_child(sub)
-	hint = _label("", 15, Color(C.CREAM, 0.6))
-	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	hint.offset_top = -40
-	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(hint)
+	# Backed pill in the bottom-right corner: readable, and off the pedestal rings.
+	hint_box = PanelContainer.new()
+	var hs := C.box(Color(C.SPACE, 0.85), Color(C.CYAN, 0.3), 1, 6)
+	hs.content_margin_top = 4
+	hs.content_margin_bottom = 4
+	hint_box.add_theme_stylebox_override("panel", hs)
+	hint_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint_box.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	hint_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	hint_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hint_box.offset_right = -20
+	hint_box.offset_bottom = -18
+	add_child(hint_box)
+	hint = _label("", 16, Color(C.CREAM, 0.95))
+	hint_box.add_child(hint)
 	for i in entries.size():
 		cards.append(_card(entries[i], i))
 		tags.append(_tag(entries[i], i))
@@ -390,7 +404,7 @@ func _card(e: Dictionary, rank: int) -> Control:
 	var col := _team_color(int(e.get("team", 0)))
 	var p := PanelContainer.new()
 	p.name = "Card%d" % rank
-	var st := C.box(Color(C.SPACE, 0.82), Color(col, 0.7), 0, 4)
+	var st := C.box(Color(C.SPACE, 0.95), Color(col, 0.7), 0, 4)
 	st.border_width_left = 6
 	st.content_margin_left = 26
 	st.content_margin_right = 30

@@ -68,7 +68,7 @@ Bots fill every empty slot, so a 1v1 friend game or a two-player casual queue st
 - **A client leaves (host side):** in the lobby they're removed. In a match their slot is released and a bot plays that athlete for the rest of the match.
 - **Host leaves or crashes (#56):** the client goes back to the menu, and the footer status reads **Host disconnected**. This works in the lobby or mid-match. If the match already ended (FINAL hold or Players of the Game), the game overview is kept. A host that quits cleanly is noticed right away. A crashed host is noticed only when ENet times out, about 10 s on localhost (#86). There is no reconnect or host migration (#17).
 - **Esc menu online:** the match keeps running (no pause). Leave match closes the connection.
-- **Bad code / unreachable host / unreachable matchmaker:** no timeout or error (#85). The client stays in its waiting lobby or on the training ground until the player leaves.
+- **Unreachable host or matchmaker:** an initial connection failure returns the player to the menu. The footer says **Couldn't reach the host** or **Couldn't reach the matchmaker**. This covers both connection setup errors and ENet timeouts.
 
 ## Design decisions
 - **A menu choice is a CLI launch** (`{"host": true}` == `--host`), so the menu runs the same paths `net_test.sh`/`mm_test.sh` cover ([out-of-game.md](out-of-game.md)).
@@ -77,6 +77,9 @@ Bots fill every empty slot, so a 1v1 friend game or a two-player casual queue st
 - **Queue matches start only with the full matched group** (`Lobby.expected`), so no one is seated by a bot because they joined late.
 - **No team or position changes online.** The old team/slot requests are rejected rather than kept as an online position-selection API ahead of #18.
 - Teams come from the party-aware `unit_teams`.
+- **Remote movement inputs are buffered.** The host preserves short bursts of commands so rapid cuts
+  survive uneven packet delivery. The queue has a fixed limit to keep corrections responsive. See
+  [client prediction](../design/netcode.md#client-prediction-client_predictorgd).
 
 ## Code and tests
 - `src/net/net_session.gd`: ENet host/join, seat assignment, lobby relay, disconnect → release.

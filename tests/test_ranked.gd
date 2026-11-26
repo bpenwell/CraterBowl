@@ -70,3 +70,35 @@ func test_roster_assign_team() -> void:
 		ro.auto_assign_team(p, 1)
 	var spill := ro.auto_assign_team(8, 1)
 	assert_eq(w.get_athlete(spill).team, 0, "falls back when full")
+
+## #102: two players both named "Ann" on opposite teams keep separate records and deltas.
+func test_same_name_players_keyed_by_install_id() -> void:
+	var r := Ranked.new()
+	var a := Ranked.id_key("00112233445566aa")
+	var b := Ranked.id_key("00112233445566bb")
+	var d := r.record_match([a], [b], 1.0, {a: "Ann", b: "Ann"})
+	assert_eq(d.size(), 2, "one delta per player")
+	assert_near(d[a], Ranked.K_PROVISIONAL / 2.0, 0.001, "winning Ann gains")
+	assert_near(d[b], -Ranked.K_PROVISIONAL / 2.0, 0.001, "losing Ann drops")
+	assert_eq(int(r.players[a]["games"]), 1, "one game each, not two on a shared record")
+	assert_eq(int(r.players[a]["wins"]), 1)
+	assert_eq(int(r.players[b]["wins"]), 0)
+	assert_eq(r.players[b]["name"], "Ann", "display name stored on the record")
+	assert_true(not r.players.has("Ann"), "no name-keyed record")
+
+func test_claim_carries_legacy_name_rating_once() -> void:
+	var r := Ranked.new()
+	r.get_player("Ann")["rating"] = 1450.0
+	r.rewards["Ann"] = ["S8100-Gold"]
+	var first := Ranked.id_key("aaaaaaaaaaaaaaaa")
+	var second := Ranked.id_key("bbbbbbbbbbbbbbbb")
+	r.claim(first, "Ann")
+	assert_near(r.rating(first), 1450.0, 0.001, "first claimer keeps the old rating")
+	assert_eq(r.rewards[first], ["S8100-Gold"], "and its season rewards")
+	assert_true(not r.players.has("Ann") and not r.rewards.has("Ann"), "legacy entry moved, not copied")
+	r.claim(second, "Ann")
+	assert_near(r.rating(second), Ranked.START, 0.001, "a second same-named player starts fresh")
+	r.get_player("Bo")["rating"] = 1200.0
+	r.claim("Bo", "Bo")
+	r.claim(first, "Bo")
+	assert_near(r.rating("Bo"), 1200.0, 0.001, "name keys and already-keyed players never claim")

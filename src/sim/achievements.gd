@@ -19,6 +19,23 @@ const CATALOG := [
 static func _f(line: Dictionary, k: String) -> float:
 	return float(line.get(k, 0.0))
 
+static func valid_match_context(ctx) -> bool:
+	if not (ctx is Dictionary):
+		return false
+	var line = ctx.get("line", {})
+	if not (line is Dictionary and ctx.get("won", false) is bool and ctx.get("mode", "") is String):
+		return false
+	for key in ["deficit", "rating"]:
+		if not _finite_number(ctx.get(key, 0.0)):
+			return false
+	for value in line.values():
+		if not _finite_number(value):
+			return false
+	return true
+
+static func _finite_number(value) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
 static func earned(id: String, ctx: Dictionary) -> bool:
 	var l: Dictionary = ctx.get("line", {})
 	match id:

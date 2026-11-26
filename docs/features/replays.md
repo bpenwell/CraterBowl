@@ -37,10 +37,10 @@ post-game overview or the command line. Online skip votes, a free camera and cli
   replay and on every camera change, then tracks smoothly.
 - The replay overlay (`src/game/replay_overlay.gd`) shows:
   - a REPLAY / HIGHLIGHT / HIGHLIGHT REEL badge with a blinking dot
-  - the speed (or SLOW-MO / PAUSED) and the camera name
+  - the speed (or SLOW-MO / PAUSED) and the camera ("BROADCAST VIEW")
   - the play summary ("TOUCHDOWN: PASS FOR 31 YD")
   - the play number, game clock, down and distance, and highlight count
-  - a progress bar and the key hints
+  - a progress bar, and the key hints as a backed bar of key + action pairs above the scorebug (#116)
   The scorebug stays up. Live-only widgets are hidden during the replay and restored afterwards.
 - Offline, the match is paused while you watch. Online, the host's match keeps running underneath, and your own
   input isn't sent while the replay shows.

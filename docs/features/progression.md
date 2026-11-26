@@ -4,7 +4,7 @@ Feature-level doc: how this works for players **today** on `main`. Open work: Gi
 
 ## Summary
 Every finished match (not practice) produces a stat line per player and position. That line feeds a local career leaderboard, XP and levels, achievements, and, for competitive-queue matches, a team Elo rating with tiers and quarterly seasons.
-Everything is stored in JSON files on each player's own machine, keyed by display name. There is no account and no server-side record.
+Everything is stored in JSON files on each player's own machine. Ratings are keyed by a random per-install id; the leaderboard, XP and achievement contexts are still keyed by display name. There is no account and no server-side record.
 
 ## How it plays
 
@@ -43,6 +43,7 @@ Everything is stored in JSON files on each player's own machine, keyed by displa
 - Tiers: Bronze < 1100 ≤ Silver < 1300 ≤ Gold < 1500 ≤ Platinum < 1700 ≤ Diamond < 1900 ≤ Legend.
 - Seasons are calendar quarters (id = year·4 + quarter). On the first ranked result of a new season, each player who played gets badge `S<id>-<peak tier>`, ratings soft-reset halfway to 1000, and games/wins reset.
 - The host computes and saves every player's new rating in **its own** `ranked.json` and broadcasts the deltas. Clients see their delta but don't save it, so their locker label and queue rating stay at their own file's value.
+- Ratings are keyed by **install id** (`id:<hex>`), not display name (#102), so two players both named Ann each keep their own rating, games and wins. Each record also stores the last display name it played under. A rating saved before #102 (keyed by name) moves to the first install id that plays a ranked match under that name; a second same-named player starts at 1000. A peer from an older build that sends no install id is still keyed by its name.
 
 ### XP and levels (`src/sim/cosmetics.gd`)
 - Per match: 100 + 50 for a win + 25 per TD + 1 per 10 yards (pass + rec + rush) + 10/tackle + 30/INT + 20/sack, plus achievement bonus XP.
@@ -80,9 +81,9 @@ Everything is stored in JSON files on each player's own machine, keyed by displa
 User data dir `crater-bowl` (see [out-of-game.md](out-of-game.md)). Tests pass the `--*-file` flags so they never touch real files.
 | File | Contents | Flag |
 |---|---|---|
-| `user://profile.json` | XP, equipped look, season badges, achievements, games played | `--profile-file` |
+| `user://profile.json` | XP, equipped look, season badges, achievements, games played, install id | `--profile-file` |
 | `user://leaderboard.json` | career lines per `name|POS` | `--leaderboard-file` |
-| `user://ranked.json` | season, per-name rating/peak/games/wins, rewards | `--ranked-file` |
+| `user://ranked.json` | season, per-player (install id) rating/peak/games/wins/name, rewards | `--ranked-file` |
 | `user://replays/*.replay` | every finished match | `--replay-dir` |
 | `user://training.json` | training personal bests ([training.md](training.md)) | `--training-file` |
 
@@ -90,6 +91,7 @@ User data dir `crater-bowl` (see [out-of-game.md](out-of-game.md)). Tests pass t
 - **Pure rules, JSON stores.** Stats, scoring, Elo, XP and achievements are pure `src/sim` code with unit tests. Persistence is a plain file per concern.
 - **Local files over an online service.** A service needs accounts and anti-cheat; for a friend group the host is the league office.
 - **Host is the authority for the match result.** Clients trust the host's XP and achievement context. That's fine among friends but not tamper-proof, and names aren't authenticated (#28).
+- **Ratings keyed by install id, kept on the host (#102).** Display names aren't unique, so the host keys each rating by a 16-hex-char id the player's install mints once (`main.gd:install_id()`, saved in `profile.json` with the first ranked result). The host keeps peers' ids in a private map and never broadcasts them: the `ranked` event is keyed by athlete id, so nobody can read another player's id and claim their rating. It isn't authentication. A tampered client can still send any id it likes (#28).
 - **No pay-to-win:** cosmetics are view-only and checked by a determinism test (identical worlds regardless of looks).
 - **Original achievement set** (12 milestones), not copied from any other game.
 - **Return yards are their own fields** (`int_ret_yds`, `fr_ret_yds`), not added to rush yards. Folding them into rushing would inflate RB/QB rushing lines and the scrimmage-yard totals that players-of-the-game and the box score compare. Players of the game weight them like scrimmage yards (0.1 per yard) under DEFENSIVE STANDOUT. The leaderboard score and team box score leave them out for now, so career tables from before #100 stay comparable.

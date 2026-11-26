@@ -281,7 +281,7 @@ func _jumbotrons(ox: float, oz: float, team_colors: Array) -> void:
 			l.position = p + Vector3(leg, 11.5, 0)
 			root.add_child(l)
 		var lab := Label3D.new()
-		lab.font = Mats.number_font()
+		lab.font = Mats.ui_font(700)   # scoreboard text reads like the scorebug (Teko), #125
 		lab.font_size = 160
 		lab.pixel_size = 0.022
 		lab.outline_size = 0

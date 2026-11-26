@@ -54,7 +54,22 @@ func test_profile_round_trip() -> void:
 	assert_eq(c2.xp, 1200)
 	assert_eq(c2.equipped["trim"], "tide")
 	assert_eq(c2.equipped["number"], 7)
+	assert_eq(c2.install_id, "", "no install id until main.gd mints one")
+	c2.install_id = "0123456789abcdef"
+	assert_true(c2.save(path))
+	var c3 := Cos.new()
+	c3.load_file(path)
+	assert_eq(c3.install_id, "0123456789abcdef", "install id persists (#102)")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func test_install_id_validation() -> void:
+	assert_true(Cos.valid_install_id("0123456789abcdef"))
+	assert_true(Cos.valid_install_id("0123456789abcdef0123456789abcdef"))
+	assert_true(not Cos.valid_install_id("0123456789abcde"), "too short")
+	assert_true(not Cos.valid_install_id("0123456789abcdef0123456789abcdef0"), "too long")
+	assert_true(not Cos.valid_install_id("0123456789ABCDEF"), "uppercase")
+	assert_true(not Cos.valid_install_id("id:0123456789abcd"), "not hex")
+	assert_true(not Cos.valid_install_id(12345678901234567), "not a string")
 
 func test_looks_never_touch_sim() -> void:
 	# Cosmetics live outside the sim: two identical worlds stay identical no matter the looks.

@@ -4,7 +4,22 @@ const Athlete := preload("res://src/sim/athlete.gd")
 const Predictor := preload("res://src/net/client_predictor.gd")
 const Interp := preload("res://src/net/interpolator.gd")
 const P := preload("res://src/net/protocol.gd")
+const NetSession := preload("res://src/net/net_session.gd")
 const DT := 1.0 / 60.0
+
+class LocalHost extends NetSession:
+	func _send(_target: int, _msg: Dictionary, _reliable: bool) -> void:
+		pass
+
+func _input_host() -> LocalHost:
+	var host := LocalHost.new()
+	host.mode = NetSession.Mode.SERVER
+	host.release_fn = func(_peer_id): pass
+	host.set_assignment(2, 0)
+	return host
+
+func _receive_input(host: LocalHost, seq: int, dir: Vector2, peer := 2) -> void:
+	host._on_packet(peer, var_to_bytes({"k": "in", "seq": seq, "dir": dir}))
 
 func _copy_state(dst, src) -> void:
 	dst.position = src.position
@@ -78,3 +93,59 @@ func test_input_seq_sanitized() -> void:
 	assert_eq(P.sanitize_input({"dir": Vector2.ZERO, "seq": 17})["seq"], 17)
 	assert_eq(P.sanitize_input({"dir": Vector2.ZERO, "seq": -5})["seq"], 0)
 	assert_eq(P.sanitize_input({"dir": Vector2.ZERO, "seq": "x"})["seq"], 0)
+
+func test_host_consumes_burst_in_order_and_acks_only_consumed_input() -> void:
+	var host := _input_host()
+	_receive_input(host, 1, Vector2.RIGHT)
+	_receive_input(host, 2, Vector2.UP)
+	_receive_input(host, 2, Vector2.LEFT)
+	assert_eq(host.acks(), {}, "received commands are still pending")
+	assert_eq(host.take_input(0).get("dir"), Vector2.RIGHT)
+	assert_eq(host.acks().get(0, -1), 1)
+	assert_eq(host.take_input(0).get("dir"), Vector2.UP, "duplicate cannot replace the queued command")
+	assert_eq(host.acks().get(0, -1), 2)
+	_receive_input(host, 1, Vector2.LEFT)
+	assert_eq(host.take_input(0), {}, "stale input cannot refill an empty queue")
+	assert_eq(host.acks().get(0, -1), 2, "an idle tick does not acknowledge a new command")
+	host.free()
+
+func test_host_bounds_each_input_queue_and_clears_it_with_assignment() -> void:
+	var host := _input_host()
+	host.set_assignment(3, 1)
+	_receive_input(host, 1, Vector2.UP, 3)
+	for seq in range(1, NetSession.INPUT_BUFFER_LIMIT + 3):
+		_receive_input(host, seq, Vector2.RIGHT)
+	assert_eq(host.take_input(0).get("seq"), 3, "oldest two commands evicted")
+	assert_eq(host.take_input(1).get("seq"), 1, "the second athlete has an independent queue")
+	_receive_input(host, 2, Vector2.DOWN, 3)
+	host.set_assignment(2, 4)
+	host._on_peer_disconnected(3)
+	assert_eq(host.acks(), {}, "reassignment and disconnection clear previous acknowledgements")
+	assert_eq(host.take_input(0), {}, "reassignment clears the old athlete's backlog")
+	assert_eq(host.take_input(1), {}, "disconnect clears the athlete's backlog")
+	assert_eq(host.take_input(4), {}, "the new assignment starts empty")
+	_receive_input(host, 1, Vector2.DOWN)
+	assert_eq(host.take_input(4).get("seq"), 1, "the new assignment starts a new sequence")
+	host.free()
+
+func test_bursty_inputs_match_delayed_reference_motion() -> void:
+	var host := _input_host()
+	var expected := Athlete.new()
+	var authority := Athlete.new()
+	var previous_authority := Athlete.new()
+	for tick in 50:
+		var command_tick := tick - 2
+		var sends_pair := command_tick >= 0 and command_tick % 2 == 0
+		if sends_pair:
+			_receive_input(host, command_tick + 1, Vector2.RIGHT)
+			_receive_input(host, command_tick + 2, Vector2.ZERO)
+		expected.step(Vector2.RIGHT if sends_pair else Vector2.ZERO, false, DT)
+		# The old host saw only the second command in each pair.
+		previous_authority.step(Vector2.ZERO, false, DT)
+		authority.step(host.take_input(0).get("dir", Vector2.ZERO), false, DT)
+	var previous_error := previous_authority.position.distance_to(expected.position)
+	var buffered_error := authority.position.distance_to(expected.position)
+	assert_true(previous_error > 2.0, "the packet schedule reproduces the position error")
+	assert_near(buffered_error, 0.0, 0.001, "buffered movement follows the delayed reference")
+	assert_eq(host.acks().get(0, -1), 48)
+	host.free()

@@ -9,8 +9,26 @@ const PROVISIONAL_GAMES := 10
 const TIERS := [[1900.0, "Legend"], [1700.0, "Diamond"], [1500.0, "Platinum"], [1300.0, "Gold"], [1100.0, "Silver"], [-INF, "Bronze"]]
 
 var season := 0
-var players := {}   # name -> {"rating", "peak", "games", "wins"}
-var rewards := {}   # name -> [reward ids]
+## Records are keyed by `id_key(install id)` (#102) so two players who share a display name keep separate
+## ratings. Peers that never sent an install id (older builds) still key by display name, as before.
+var players := {}   # key -> {"rating", "peak", "games", "wins", "name"}
+var rewards := {}   # key -> [reward ids]
+
+const ID_PREFIX := "id:"   # display names are <= 16 chars, so "id:" + 16+ hex can't collide with one
+
+static func id_key(install_id: String) -> String:
+	return ID_PREFIX + install_id
+
+## Carry a pre-#102 rating (keyed by display name) over to this player's install-id key, once.
+## The first id-keyed player to claim a name takes its record; later same-named players start fresh.
+func claim(key: String, name: String) -> void:
+	if not key.begins_with(ID_PREFIX) or players.has(key) or name.begins_with(ID_PREFIX) or not players.has(name):
+		return
+	players[key] = players[name]
+	players.erase(name)
+	if rewards.has(name):
+		rewards[key] = rewards[name]
+		rewards.erase(name)
 
 static func season_id(unix_time: float) -> int:
 	var d := Time.get_datetime_dict_from_unix_time(int(unix_time))
@@ -49,8 +67,9 @@ func ensure_season(new_season: int) -> void:
 		p["wins"] = 0
 	season = new_season
 
-## result_a: 1 win for team A, 0 loss, 0.5 tie. Returns {name: delta}.
-func record_match(team_a: Array, team_b: Array, result_a: float) -> Dictionary:
+## Teams are lists of record keys. result_a: 1 win for team A, 0 loss, 0.5 tie. Returns {key: delta}.
+## `names` (key -> display name) is stored on each record so the file stays readable.
+func record_match(team_a: Array, team_b: Array, result_a: float, names: Dictionary = {}) -> Dictionary:
 	if team_a.is_empty() or team_b.is_empty():
 		return {}
 	var avg := func(team): 
@@ -71,6 +90,8 @@ func record_match(team_a: Array, team_b: Array, result_a: float) -> Dictionary:
 			p["games"] = int(p["games"]) + 1
 			if side[1] > 0.5:
 				p["wins"] = int(p["wins"]) + 1
+			if names.has(n):
+				p["name"] = str(names[n])
 			deltas[n] = d
 	return deltas
 

@@ -2,6 +2,7 @@ extends SceneTree
 ## Scripted end-to-end flow through the real main scene (presentation glue).
 ## Each step: [physics frame @60Hz, callable]. Exits 1 on failed check.
 
+const RIVAL_INSTALL := "feedfacecafebeef"   # #102: the ranked rival's install id
 var main
 var frame := 0
 var ok := true
@@ -194,10 +195,11 @@ func _initialize() -> void:
 		[6804, func(): check(main.potg.size() >= 2 and main.potg.size() <= 4, "2-4 players of the game (%d)" % main.potg.size()); check(main.potg[0]["title"] == "PLAYER OF THE GAME" and main.potg.any(func(e): return e["name"] == "You"), "your QB line made the cut"); check(main.postgame_t >= 0.0 and main.postgame == null, "presentation queued after the FINAL hold"); main.start_postgame()],
 		[6806, func(): var st = main.postgame; check(st != null and st.views.size() == main.potg.size() and st.step == -1, "presentation intro with one athlete per pick"); st.advance(); check(st.step == 0 and st.cards[0].visible, "first spotlight card")],
 		[6810, func(): var st = main.postgame; st.skip(); check(st.is_done() and main.postgame_done and main.postgame == null, "skip ends the presentation"); var ov = main.match_overview(); check(ov["potg"].size() == main.potg.size() and ov["teams"].size() == 2 and ov["my_lines"].size() >= 1, "overview carries picks, team stats, your line %s" % str(ov["my_lines"]))],
-		# A23: ranked match vs a human rival -> rating change saved + on HUD
+		# A23: ranked match vs a human rival -> rating change saved + on HUD.
+		# #102: the rival shares our display name ("You"); records are keyed by install id, so each keeps its own.
 		[6900, func(): main.configure(7); _setup_ranked_rival()],
 		[6902, func(): main.series.score = [7, 0]; main.series.clock.half = 2; main.series.clock.remaining = 0.0; main.world.phase = main.World.Phase.DEAD; main.series.last_result = {"type": "incomplete"}; main.next_play()],
-		[6904, func(): var rk = main.Ranked.new(); rk.load_file(main.ranked_path); check(rk.rating("You") > 1000.0 and rk.rating("Rival") < 1000.0, "ratings saved (You %.0f, Rival %.0f)" % [rk.rating("You"), rk.rating("Rival")]); check(main.hud.text.find("RATING ") >= 0 and main.hud.text.find("(+24)") >= 0, "HUD shows rating change"); DirAccess.remove_absolute(ProjectSettings.globalize_path(main.ranked_path)); DirAccess.remove_absolute(ProjectSettings.globalize_path(main.leaderboard_path))],
+		[6904, func(): var rk = main.Ranked.new(); rk.load_file(main.ranked_path); var mine: String = main.Ranked.id_key(main.profile.install_id); var theirs: String = main.Ranked.id_key(RIVAL_INSTALL); check(rk.players.size() == 2 and not rk.players.has("You"), "same-named players get two id-keyed records (%s)" % str(rk.players.keys())); check(rk.rating(mine) > 1000.0 and rk.rating(theirs) < 1000.0, "ratings saved (host %.0f, rival %.0f)" % [rk.rating(mine), rk.rating(theirs)]); check(int(rk.players[mine]["games"]) == 1 and int(rk.players[mine]["wins"]) == 1 and int(rk.players[theirs]["wins"]) == 0, "one game each, one win"); check(rk.players[theirs].get("name") == "You", "display name kept on the record"); check(main.hud.text.find("RATING ") >= 0 and main.hud.text.find("(+24)") >= 0, "HUD shows rating change"); var saved = main.Cosmetics.new(); saved.load_file(main.profile_path); check(saved.install_id != "" and saved.install_id == main.profile.install_id, "host install id minted + saved with the profile"); main.peer_installs.erase(99); DirAccess.remove_absolute(ProjectSettings.globalize_path(main.ranked_path)); DirAccess.remove_absolute(ProjectSettings.globalize_path(main.leaderboard_path))],
 		# A24: earned cosmetics on your athlete, TD celebration, XP at final
 		[7000, func(): main.profile.xp = 600; check(main.profile.equip("trim", "ember") and main.profile.equip("celebration", "spin") and main.profile.equip("number", 88), "equip earned items (level 1)"); check(not main.profile.equip("trim", "aurora"), "locked item refused"); main.configure(7)],
 		[7002, func(): var v = main.views[main.my_id]; check(v.number_text == "88" and v.trim_color.is_equal_approx(main.Cosmetics.color_of("trim", "ember")), "your look shown on your athlete"); check(main.views[(main.my_id + 1) % main.views.size()].number_text != "88", "others keep their own looks")],
@@ -507,7 +509,8 @@ func _setup_ranked_rival() -> void:
 	main.ranked_path = "user://test_flow_ranked.json"
 	main.leaderboard_path = "user://test_flow_leaderboard.json"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(main.ranked_path))
-	main.lobby.players[99] = {"name": "Rival", "ready": true}
+	main.lobby.players[99] = {"name": "You", "ready": true}   # same display name as the host (#102)
+	main.peer_installs[99] = RIVAL_INSTALL
 	main.roster.auto_assign_team(99, 1 - main.world.get_athlete(main.my_id).team)
 
 func _force_dead_if_live() -> void:

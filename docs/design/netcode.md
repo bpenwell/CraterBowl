@@ -45,11 +45,11 @@ see when hosting, joining, queueing) lives in `docs/features/` (online play). La
 
 | `k` | Direction | Delivery | Payload | Receiver checks |
 |---|---|---|---|---|
-| `in` | C→S | unreliable-ordered, ch 1, every tick | `dir`, `spr`, `seq`, `block` | sender has an athlete; `P.sanitize_input`; `seq` must not go backwards |
+| `in` | C→S | unreliable-ordered, ch 1, every tick | `dir`, `spr`, `seq`, `block` | sender has an athlete; `P.sanitize_input`; `seq` must exceed the last queued or consumed sequence |
 | `act` | C→S | reliable, ch 0 | `act` (action dict) | sender has an athlete; `P.is_action(act)` (Dictionary with a String `a`, else dropped); queued as `[peer, aid, act]`, fields validated when applied |
-| `lact` | C→S | reliable, ch 0 | `act` = `{"a":"ready"}` / `{"a":"name","n":…}` / `{"a":"seat","s":…}` (queue matches, #59) | sender is in `lobby.players`; `act` is a Dictionary |
+| `lact` | C→S | reliable, ch 0 | `act` = `{"a":"ready"}` / `{"a":"name","n":…}` / `{"a":"seat","s":…}` (queue matches, #59) / `{"a":"id","i":…}` (install id, 16–32 hex chars, #102) | sender is in `lobby.players`; `act` is a Dictionary |
 | `refused` | S→C | reliable, ch 0 | `why` (reason text) | from peer 1; cut to 120 chars. Client stores `refused_reason`, emits `refused`, closes its peer and ignores later packets |
-| `welcome` | S→C | reliable, ch 0 | `aid`, `size`, `mode` | from peer 1; `size` ∈ {3,5,7} else 7; `mode` chaosball else classic |
+| `welcome` | S→C | reliable, ch 0 | `aid`, `size`, `mode` | from peer 1; `aid` must index an athlete, `size` is 3, 5 or 7 (default 7), and `mode` is classic (default) or chaosball. Invalid fields leave the current assignment intact |
 | `snap` | S→all | unreliable-ordered, ch 1, 30 Hz | see Snapshots | from peer 1; tick `t` > last seen |
 | `ev` | S→all | reliable, ch 0 | `n` (event name), `d` | from peer 1; `d` forced to Dictionary |
 | `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()` | from peer 1; `s` is a Dictionary |
@@ -103,12 +103,14 @@ The host re-broadcasts every world event from `main.gd:_on_world_event`, plus ma
 | `d`, `s`, `c`, `to` | downs (offense, down, los, first-down y), score, clock (half, remaining, play clock, final, quarter, quarter length in seconds), timeouts |
 | `ph`, `off`, `los`, `fpt`, `pt`, `ms`, `tp` | world phase, offense team, LOS, forward pass thrown, last possession, match state, try points |
 | `pl`, `rt`, `dc`, `rf`, `hc`, `cs` | play name, route index per athlete (-1 none), defensive call, run flipped, handoff cooldown, Chaosball streak/hold |
-| `ack` | athlete id → last input `seq` the server stored (`NetSession.acks()`) |
+| `ack` | athlete id → last input `seq` the server consumed (`NetSession.acks()`) |
 
-It's a full snapshot every time (no deltas). `apply_snapshot` writes straight into the client's
-`World`/`Match`; dive/ground flags become token timers (`0.01`). Newer keys are read with `.get()`
-defaults; the core keys (`ph`, `a`, `r`, `b`, `d`, `s`, `c`, `ms`, `tp`) are indexed directly, so the
-client trusts the host's shape. New sim state: add to both functions and `tests/test_protocol.gd`.
+Each message contains a full snapshot. Before advancing its last accepted tick, the client validates
+the payload types, array lengths for the advertised match size, finite numeric fields and input
+acknowledgments. A rejected snapshot leaves the previous game state and tick intact.
+`apply_snapshot` writes accepted state into the client's `World` and `Match`. Dive and ground
+flags become token timers (`0.01`), and optional fields retain their compatibility defaults.
+When adding wire fields, update the encoder, validator, decoder and protocol tests together.
 The quarter fields extend the clock array after its four original entries. If they are absent, the client uses halves.
 
 ## Client prediction (`client_predictor.gd`)
@@ -122,9 +124,10 @@ and full rollback of the whole sim is overkill when the host owns every contact.
 2. `main.gd:_on_snapshot`: `apply_snapshot` overwrites everything (including our athlete), then
    `predictor.reconcile(me, ack[my_id], world)` drops acked inputs and replays the rest. `pending` is
    capped at `MAX_PENDING = 240` (4 s).
-3. Server side, `NetSession.inputs[aid]` holds only the **latest** input; `world.step` reuses it every
-   tick until a newer one arrives. If two inputs land in one server tick, the first is acked but never
-   simulated; with none, the last repeats. Prediction and server agree only when inputs arrive one per tick.
+3. The host buffers up to six commands per remote athlete and applies one per sim tick in sequence
+   order. It uses neutral human controls when the queue is empty. Overflow evicts the oldest command
+   to cap the delay, and disconnect or reassignment clears the queue and acknowledgement. Snapshots
+   acknowledge the last consumed sequence, so the client replays only newer commands.
 4. Prediction ignores collisions, blocks, tackles and other athletes; those corrections show up as
    snaps on reconcile (#45).
 
@@ -179,6 +182,12 @@ messages are reliable on channel 0.
   is matched by name. `teams` leaves out any name two queued players share, so an old host
   auto-balances them instead of stacking both on one team. Test: `MODE=dupname ./scripts/mm_test.sh`
   (two competitive clients both named Ann) and `test_matchmaker.gd`.
+- **Install ids (#102).** Ranked records are keyed by a per-install id (`Cosmetics.install_id`, 8 random
+  bytes hex, minted by `main.gd:install_id()`). A joiner sends it as the `id` lobby action next to `name`.
+  The host validates it (`Cosmetics.valid_install_id`), keeps it in `peer_installs` (not in the broadcast
+  lobby state), and `_record_ranked` keys each human by `ranked_key(owner, aid)`. The broadcast `ranked`
+  event is keyed by athlete id, so ids never leave the host. An older client sends no id and is keyed by
+  name. Test: `net_test.sh` checks that the id the client minted is the one the host received.
 - Disconnect from the MM dequeues, drops pending host relays and the registry entry.
 - Server browser: `lobby_advertiser.gd` (attached by `Launch._advertise` when `options.public`)
   re-registers `{code, name, size, mode, players, in_game}` every 5 s; `lobby_registry.gd` expires
@@ -205,8 +214,9 @@ messages are reliable on channel 0.
 ## Trust model and known limits
 
 - Server-authoritative for movement and actions; clients can't teleport or call plays for the other side.
-- Clients fully trust the host: snapshots, `awards` (clients add host-sent XP to their own profile in
-  `main.gd:_apply_award`) and `ranked`. Ratings and leaderboards live only on the host's disk (#28).
+- Clients validate snapshot shape and accept integer match XP from 0 through 10,000. Malformed
+  achievement context or XP leaves the local profile untouched. The host remains the authority on
+  match outcomes and awards. Ratings and leaderboards live only on the host's disk (#28).
 - No reconnect, leaver handling or forfeit; a client doesn't react to losing the host (#17).
 - Prediction covers the local athlete's free movement only (#45). No snapshot deltas or compression.
 - No message rate limits on game or matchmaker sockets.
@@ -223,7 +233,6 @@ messages are reliable on channel 0.
 - #18 C12 Position assignment: QB vote, role preferences
 - #20 C14 Spectators
 - #26 C20 Rematch and keep-the-lobby
-- #53 Host keeps only the newest client input per tick
 - #55 No rate limits on client actions or matchmaker messages
 - #56 Client doesn't detect losing the host
 - #57 UPnP port mapping is never removed after hosting
