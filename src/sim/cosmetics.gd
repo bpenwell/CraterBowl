@@ -7,27 +7,27 @@ const XP_PER_LEVEL := 500
 ## slot -> id -> {name, level?, color?}
 const CATALOG := {
 	"trim": {
-		"white": {"name": "Chalk", "level": 0, "color": Color(0.95, 0.95, 0.95)},
-		"black": {"name": "Ink", "level": 0, "color": Color(0.08, 0.08, 0.1)},
-		"ember": {"name": "Ember", "level": 1, "color": Color(1.0, 0.35, 0.1)},
-		"tide": {"name": "Tide", "level": 2, "color": Color(0.1, 0.6, 0.9)},
-		"volt": {"name": "Volt", "level": 4, "color": Color(0.75, 1.0, 0.1)},
-		"aurora": {"name": "Aurora", "level": 8, "color": Color(0.7, 0.3, 1.0)},
+		"white": {"name": "Chalk", "level": 1, "color": Color(0.95, 0.95, 0.95)},
+		"black": {"name": "Ink", "level": 1, "color": Color(0.08, 0.08, 0.1)},
+		"ember": {"name": "Ember", "level": 2, "color": Color(1.0, 0.35, 0.1)},
+		"tide": {"name": "Tide", "level": 3, "color": Color(0.1, 0.6, 0.9)},
+		"volt": {"name": "Volt", "level": 5, "color": Color(0.75, 1.0, 0.1)},
+		"aurora": {"name": "Aurora", "level": 9, "color": Color(0.7, 0.3, 1.0)},
 	},
 	"helmet": {
-		"plain": {"name": "Plain", "level": 0, "color": Color(0.85, 0.85, 0.85)},
-		"gold": {"name": "Gold Stripe", "level": 2, "color": Color(1.0, 0.8, 0.2)},
-		"crimson": {"name": "Crimson Stripe", "level": 3, "color": Color(0.8, 0.1, 0.15)},
-		"chrome": {"name": "Chrome", "level": 6, "color": Color(0.8, 0.85, 0.95)},
+		"plain": {"name": "Plain", "level": 1, "color": Color(0.85, 0.85, 0.85)},
+		"gold": {"name": "Gold Stripe", "level": 3, "color": Color(1.0, 0.8, 0.2)},
+		"crimson": {"name": "Crimson Stripe", "level": 4, "color": Color(0.8, 0.1, 0.15)},
+		"chrome": {"name": "Chrome", "level": 7, "color": Color(0.8, 0.85, 0.95)},
 	},
 	"celebration": {
-		"none": {"name": "None", "level": 0},
-		"spin": {"name": "Spin", "level": 1},
-		"hop": {"name": "Moon Hop", "level": 3},
-		"flip": {"name": "Flip", "level": 5},
+		"none": {"name": "None", "level": 1},
+		"spin": {"name": "Spin", "level": 2},
+		"hop": {"name": "Moon Hop", "level": 4},
+		"flip": {"name": "Flip", "level": 6},
 	},
 	"badge": {
-		"none": {"name": "None", "level": 0},
+		"none": {"name": "None", "level": 1},
 	},
 }
 const DEFAULT_LOOK := {"trim": "white", "helmet": "plain", "number": 1, "celebration": "none", "badge": "none"}
@@ -39,8 +39,9 @@ var achievements: Array = []     # unlocked achievement ids
 var games := 0                   # matches finished
 var install_id := ""             # stable per-install id; ranked records are keyed by it (#102). main.gd mints it.
 
+## Players start at Level 1 (#125); each XP_PER_LEVEL adds one. CATALOG levels use the same scale.
 func level() -> int:
-	return xp / XP_PER_LEVEL
+	return xp / XP_PER_LEVEL + 1
 
 ## Generous ceiling for one match, shared by the award producer and receiver.
 const MAX_MATCH_XP := 10_000
