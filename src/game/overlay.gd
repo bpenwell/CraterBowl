@@ -14,7 +14,7 @@ const ACCENT := Color(0.36, 0.88, 1.0)
 const ALERT := Color(1.0, 0.42, 0.12)
 ## Fixed scorebug width (#116): reserving the play-clock cell keeps the bug from jumping
 ## and re-centering at the snap and the whistle. Content wider than this still grows it.
-const BUG_W := 600.0
+const BUG_W := 660.0   # fits every state in Teko (#125 Slice A; was 600 with Rajdhani)
 ## Bottom HUD stack (#116): scorebug flush to the bottom, the movement meters beside it and
 ## the status pill on its top-left edge, so nothing floats over the controlled player.
 const BUG_BOTTOM := 14.0
