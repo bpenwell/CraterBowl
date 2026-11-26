@@ -19,6 +19,7 @@ var _title: Label
 var _time: Label
 var _bar: ProgressBar
 var _pause: Button
+var _shown := true        # the menu hides the chip while a side panel is open (#125)
 
 static func load_playlist(path: String = PLAYLIST) -> Array:
 	if not FileAccess.file_exists(path):
@@ -112,40 +113,64 @@ func _refresh() -> void:
 	if widget == null:
 		return
 	var t := current()
-	widget.visible = not t.is_empty()
+	widget.visible = _shown and not t.is_empty()
 	_title.text = "%s - %s" % [t.get("artist", ""), t.get("title", "")]
 	_title.tooltip_text = "%s · %s" % [_title.text, t.get("license", "")]
 	_pause.set_meta("icon", "play" if player and player.stream_paused else "pause")
 	_pause.queue_redraw()
 
 ## Footer widget: [⏮] (❚❚) [⏭]  Artist - Title / progress / time
+func set_widget_shown(v: bool) -> void:
+	_shown = v
+	if widget:
+		widget.visible = _shown and not tracks.is_empty()
+
+## True when there is a playlist to show controls for.
+func widget_wanted() -> bool:
+	return not tracks.is_empty()
+
+## Compact now-playing chip: play/pause, title + progress, next (#125). Full controls are in
+## Settings > Audio. Buttons keep a fixed square size (SHRINK_CENTER): stretched by the row they
+## used to render as a tall capsule with a seam through it.
 func build_widget() -> Control:
+	var chip := PanelContainer.new()
+	chip.name = "NowPlaying"
+	var bg := C.box(Color(C.SPACE, 0.8), Color(C.CREAM, 0.14), 1, 22)
+	bg.content_margin_left = 6
+	bg.content_margin_right = 10
+	bg.content_margin_top = 4
+	bg.content_margin_bottom = 4
+	chip.add_theme_stylebox_override("panel", bg)
 	var h := HBoxContainer.new()
-	h.name = "NowPlaying"
 	h.add_theme_constant_override("separation", 8)
-	h.alignment = BoxContainer.ALIGNMENT_END
+	chip.add_child(h)
 	var mk := func(icon: String, cb: Callable, round_btn: bool) -> Button:
 		var b := Button.new()
 		b.name = icon.capitalize()
 		b.set_meta("icon", icon)
 		b.focus_mode = Control.FOCUS_NONE
 		b.draw.connect(func(): _draw_icon(b))
-		b.custom_minimum_size = Vector2(38, 38) if round_btn else Vector2(30, 30)
-		var flat := C.box(Color(C.CREAM, 0.12) if round_btn else Color(0, 0, 0, 0), Color(C.CREAM, 0.25) if round_btn else Color(0, 0, 0, 0), 1, 19)
-		flat.content_margin_left = 4
-		flat.content_margin_right = 4
-		b.add_theme_stylebox_override("normal", flat)
-		b.add_theme_stylebox_override("hover", C.box(Color(C.CYAN, 0.2), C.CYAN, 1, 19))
-		b.add_theme_stylebox_override("pressed", C.box(Color(C.CYAN, 0.35), C.CYAN, 1, 19))
+		var d := 32 if round_btn else 26
+		b.custom_minimum_size = Vector2(d, d)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		b.tooltip_text = {"pause": "Pause / play", "next": "Next track", "prev": "Previous track"}.get(icon, "")
+		var r := d / 2
+		var mkbox := func(fill: Color, edge: Color) -> StyleBoxFlat:
+			var sb := C.box(fill, edge, 1, r)
+			sb.set_content_margin_all(0)
+			return sb
+		b.add_theme_stylebox_override("normal", mkbox.call(Color(C.CREAM, 0.1) if round_btn else Color(0, 0, 0, 0), Color(C.CREAM, 0.3) if round_btn else Color(0, 0, 0, 0)))
+		b.add_theme_stylebox_override("hover", mkbox.call(Color(C.CYAN, 0.2), C.CYAN))
+		b.add_theme_stylebox_override("pressed", mkbox.call(Color(C.CYAN, 0.35), C.CYAN))
+		b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 		b.pressed.connect(cb)
 		h.add_child(b)
 		return b
-	mk.call("prev", prev, false)
 	_pause = mk.call("pause", toggle_pause, true)
-	mk.call("next", next, false)
 	var info := VBoxContainer.new()
 	info.add_theme_constant_override("separation", 2)
-	info.custom_minimum_size = Vector2(280, 0)
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(info)
 	var top := HBoxContainer.new()
 	info.add_child(top)
@@ -171,10 +196,11 @@ func build_widget() -> Control:
 	fill.content_margin_bottom = 0
 	_bar.add_theme_stylebox_override("fill", fill)
 	info.add_child(_bar)
-	widget = h
-	widget.visible = not tracks.is_empty()
+	mk.call("next", next, false)
+	widget = chip
+	widget.visible = _shown and not tracks.is_empty()
 	_refresh()
-	return h
+	return chip
 
 ## Transport icons drawn as shapes (no glyph-font dependency).
 static func _draw_icon(b: Button) -> void:

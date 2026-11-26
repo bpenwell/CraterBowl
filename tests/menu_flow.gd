@@ -22,6 +22,8 @@ class Rec:
 	var real
 	var settings:
 		get: return real.settings
+	var last_match:
+		get: return real.last_match
 	func start_game(o: Dictionary) -> void: opts = o
 	func save_settings() -> void: real.save_settings()
 	func version() -> String: return real.version()
@@ -223,9 +225,12 @@ func _setup() -> void:
 			var ov = m.content.find_child("GameOverview", true, false)
 			check(ov != null and ov.find_child("Potg1", true, false) != null and ov.find_child("BoxScore", true, false) != null, "overview lists players of the game + team stats")
 			check((ov.find_child("Result", true, false) as Label).text == "VICTORY", "overview headline from your side")
-			check(_btn(m, "Last game") != null, "footer can reopen the last game")
 			_btn(m.content, "Close").pressed.emit()
-			check(m.current == "home", "close overview -> lobby home")],
+			check(m.current == "home", "close overview -> lobby home")
+			check(m.last_game.is_visible_in_tree() and m.last_game.text.contains("VICTORY 21–14"), "Home card can reopen the last game (#125)")
+			m.last_game.pressed.emit()
+			check(m.current == "overview", "last game card opens the overview")
+			m.show_screen("home")],
 		[900, func():
 			check(mms.registry.listing(mms._now()).filter(func(e): return e["name"] == "Ace's match").is_empty(), "lobby unlisted after leaving")
 			launch.start_game({"practice": "passing"})],

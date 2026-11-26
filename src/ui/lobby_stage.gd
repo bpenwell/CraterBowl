@@ -14,7 +14,8 @@ const SQUAD_COLOR := Color(0.3, 0.8, 0.95)
 const SLOTS := [[-3.5, -1.9, -1, "invite"], [-1.95, -0.7, 2, "bot"], [0.0, 0.55, 0, "you"],
 	[1.95, -0.7, 3, "bot"], [3.5, -1.9, -1, "invite"]]
 const HERO_Z := 0.55
-const PANEL_SHIFT := 1.45   # camera h_offset when a side panel covers the right half
+const PANEL_SHIFT := 1.0    # camera h_offset when a side panel covers the right half
+const PANEL_LEFT := 0.46    # where the menu's side panel starts (main_menu.gd _build_panel anchor)
 
 signal invite_pressed
 
@@ -23,6 +24,7 @@ var viewport: SubViewport
 var camera: Camera3D
 var hero               # the player's athlete view (player.gd)
 var overlay: Control
+var _right_slots: Array[Node3D] = []   # slots right of the hero: hidden under an open side panel (#125)
 var _pins := []        # [Control, Vector3 world anchor]
 var _shift := 0.0
 var _shift_to := 0.0
@@ -57,6 +59,10 @@ func set_player(player_name: String, look: Dictionary) -> void:
 ## Slide the squad left so a right-hand panel doesn't cover the hero.
 func set_panel_open(open: bool) -> void:
 	_shift_to = PANEL_SHIFT if open else 0.0
+	# The panel is opaque, but it is shorter than the screen when its content is short: hide the
+	# teammate and pads behind it so no half-covered player shows under its bottom edge.
+	for n in _right_slots:
+		n.visible = not open
 
 func _process(delta: float) -> void:
 	_t += delta
@@ -73,7 +79,10 @@ func _process(delta: float) -> void:
 		var at: Vector2 = camera.unproject_position(p[1])
 		ctl.position = at - ctl.size * Vector2(0.5, 0.0 if p[2] else 0.5)
 		var in_view := Rect2(Vector2.ZERO, size).encloses(ctl.get_rect())
-		ctl.visible = in_view and not camera.is_position_behind(p[1])
+		# A side panel covers the right of the screen from PANEL_LEFT: pins under it would ghost
+		# through the panel or sit on its edge (#125), so they hide while it's open.
+		var clear_of_panel := _shift_to == 0.0 or ctl.get_rect().end.x < size.x * PANEL_LEFT - 8.0
+		ctl.visible = in_view and clear_of_panel and not camera.is_position_behind(p[1])
 
 # ---------------------------------------------------------------- scene
 func _build_stage(vp: SubViewport) -> void:
@@ -168,7 +177,11 @@ func _build_stage(vp: SubViewport) -> void:
 	for s in SLOTS:
 		var at := Vector3(s[0], 0, s[1])
 		var big: bool = s[3] == "you"
-		_pad(root, at, 0.95 if big else 0.62, big)
+		var slot := Node3D.new()   # one node per slot so a side panel can hide the right-hand ones
+		root.add_child(slot)
+		if at.x > 0.5:
+			_right_slots.append(slot)
+		_pad(slot, at, 0.95 if big else 0.62, big)
 		match s[3]:
 			"you", "bot":
 				var a := Athlete.new()
@@ -177,7 +190,7 @@ func _build_stage(vp: SubViewport) -> void:
 				a.position = Vector2(at.x, -at.z)
 				var v = PlayerView.new()
 				v.setup(a, SQUAD_COLOR)
-				root.add_child(v)
+				slot.add_child(v)
 				v.rotation.y = PI + (0.0 if big else -signf(at.x) * 0.25)   # face the camera, angled in
 				if big:
 					hero = v

@@ -20,6 +20,15 @@ Feature-level doc: how this works **today** on `main`. The in-match game is in t
   - **Rebinding and gamepad** work as a translation layer: the player's key, or a gamepad button/stick/trigger, is re-injected as the default key that `main.gd` reads (`src/ui/controls.gd`). Match code never needs to know about bindings.
 - Settings live in `user://settings.cfg` (`src/ui/settings_store.gd`): name, fullscreen, vsync, 3D resolution, frame cap, master volume, matchmaker address, UPnP, key bindings. Headless runs ignore the player's file.
 
+## Home layout (#125)
+Each action appears exactly once. There is no footer bar.
+- **Top bar:** logo, nav tabs (HOME · ONLINE · VS BOTS · TRAINING · LOCKER ROOM · LEADERBOARD · REPLAYS), profile chip (name + ranked rating; opens the locker), gear (Settings).
+- **Left column (Home only):** season card; **Last game** card when a match finished this session (result + your score first, opens the overview); mode chip (`CHANGE [TAB]`, quick pick of offline/online modes); PLAY (`[ENTER]`). Shortcuts are keycaps on the control they trigger, never a separate legend.
+- **Right (Home only):** level ring with the XP bar (the only place level is shown; players start at Level 1, unlocks at the same XP as before) and the now-playing chip (play/pause, track, next).
+- **Side panels** (every tab except Home) are opaque, shrink to their content (long ones scroll), and hide the Home column, the now-playing chip, lobby pins under the panel and the teammates behind it, so a panel's own button (KICK OFF, QUICK MATCH…) is the only launch on screen. Panel headings match the nav labels.
+- **Status messages** ("Host disconnected", bad name…) appear as a toast under the top bar for 6 s.
+- **Esc on Home** opens "Quit Crater Bowl?" (Quit / Keep playing). Settings → About has the build number, Report a bug and Quit game; Settings → Audio has the full music controls.
+
 ## Menu map
 | Screen | What it does |
 |---|---|
@@ -27,10 +36,11 @@ Feature-level doc: how this works **today** on `main`. The in-match game is in t
 | Play online | Rules (classic/Chaosball) + size + party (Chaosball locks size to a dimmed 3v3; Classic restores the earlier pick, #83), Quick match / Ranked, host a match (optionally listed publicly), join by invite code/IP, live browser of open matches |
 | Play vs bots | Offline full match, any size/rules (same Chaosball size lock) |
 | Practice | Passing / catching / tackling / scrimmage drills |
-| Locker | Level/XP, equip unlocked cosmetics + number |
-| Leaderboards | Ranked rating + per-position career tables |
+| Locker room | Level/XP, equip unlocked cosmetics + number |
+| Leaderboard | Per-position career tables (your ranked rating is on the profile chip) |
 | Replays | Saved match replays, newest first |
-| Settings | Player, video, audio, online, controls (click to rebind; conflicts swap) |
+| Settings | Player, video, audio (+ now-playing controls), online, controls (click to rebind; conflicts swap), credits, About (build, report a bug, quit) |
+| Quit | Confirm before quitting (Esc on Home, or Settings → About) |
 
 ## Finding games + internet play
 - **Matchmaker** (`--matchmaker`) does queues (casual/competitive, parties, Chaosball) and now also the **server browser**: hosts `register` their lobby every 5 s (`src/net/lobby_advertiser.gd`); entries expire after 20 s (`src/net/lobby_registry.gd`).

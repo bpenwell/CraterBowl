@@ -19,9 +19,9 @@ const GameOverview := preload("res://src/ui/game_overview.gd")
 const QUEUE_HOST_PORT := 24566    # fixed so UPnP can map it before queueing
 const SIZES := [3, 5, 7]
 const TOP_H := 78
-const FOOT_H := 60
+const EDGE := 22               # gap between panels/clusters and the screen edge (no footer since #125)
 const BUG_URL := "https://github.com/bpenwell/football-game/issues"
-const TABS := [["home", "Play"], ["online", "Online"], ["bots", "Vs bots"], ["practice", "Training"],
+const TABS := [["home", "Home"], ["online", "Online"], ["bots", "Vs bots"], ["practice", "Training"],
 	["locker", "Locker room"], ["leaders", "Leaderboard"], ["replays", "Replays"]]
 ## Home-screen PLAY selector. Keys mirror Launch.start_game options.
 const MODES := [
@@ -54,6 +54,10 @@ var avatar: Button
 var profile_name: Label
 var profile_sub: Label
 var status_label: Label
+var toast: PanelContainer      # status messages (#125: was footer text)
+var _toast_timer: Timer
+var last_game: Button          # Home card that reopens the last match overview
+var music_chip: Control
 var nav_buttons := {}         # screen id -> Button
 var current := ""
 var profile := Cosmetics.new()
@@ -101,8 +105,11 @@ func build() -> void:
 	_build_news()
 	_build_play_cluster()
 	_build_level_ring()
+	_build_last_game()
 	_build_panel()
-	_build_footer()
+	_build_music()
+	_build_toast()
+	_status(launch.last_status)
 	launch.last_status = ""
 	for m in MODES:
 		if m["id"] == settings().home_mode:
@@ -211,7 +218,7 @@ func _build_news() -> void:
 	news.name = "News"
 	news.focus_mode = Control.FOCUS_NONE
 	news.tooltip_text = "Play ranked"
-	var card := UITheme.box(Color(UITheme.NAVY, 0.92), Color(UITheme.CYAN, 0.4), 1, 10)
+	var card := UITheme.box(Color(UITheme.NAVY, 0.985), Color(UITheme.CYAN, 0.4), 1, 10)
 	card.shadow_color = Color(UITheme.CYAN, 0.18)
 	card.shadow_size = 14
 	news.add_theme_stylebox_override("normal", card)
@@ -255,13 +262,8 @@ func _build_play_cluster() -> void:
 	v.name = "PlayCluster"
 	v.add_theme_constant_override("separation", 10)
 	v.alignment = BoxContainer.ALIGNMENT_END
-	_place(v, [0, 1, 0, 1], [36, -FOOT_H - 250, 36 + 390, -FOOT_H - 22])
+	_place(v, [0, 1, 0, 1], [36, -EDGE - 290, 36 + 390, -EDGE])
 	add_child(v)
-	var hint := Label.new()
-	hint.text = "ENTER  PLAY  ·  TAB  CHANGE MODE"
-	hint.add_theme_font_size_override("font_size", 13)
-	hint.add_theme_color_override("font_color", Color(UITheme.CREAM, 0.6))
-	v.add_child(hint)
 	mode_button = Button.new()
 	mode_button.name = "ModeButton"
 	mode_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -270,17 +272,23 @@ func _build_play_cluster() -> void:
 	mode_button.add_theme_stylebox_override("normal", UITheme.box(Color(UITheme.SPACE, 0.85), Color(UITheme.CREAM, 0.25), 1, 6))
 	mode_button.pressed.connect(_open_mode_menu)
 	v.add_child(mode_button)
-	var change := Label.new()
-	change.text = "CHANGE"
-	change.add_theme_font_size_override("font_size", 13)
-	change.add_theme_color_override("font_color", Color(UITheme.CREAM, 0.65))
+	# The shortcut lives on the control it triggers (#125), not in a separate legend.
+	var change := HBoxContainer.new()
+	change.add_theme_constant_override("separation", 8)
 	change.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	change.offset_left = -84
-	change.offset_right = -18
-	change.offset_top = -10
-	change.offset_bottom = 10
+	change.offset_left = -150
+	change.offset_right = -14
+	change.offset_top = -13
+	change.offset_bottom = 13
+	change.alignment = BoxContainer.ALIGNMENT_END
 	change.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mode_button.add_child(change)
+	var cl := Label.new()
+	cl.text = "CHANGE"
+	cl.add_theme_font_size_override("font_size", 15)
+	cl.add_theme_color_override("font_color", Color(UITheme.CREAM, 0.7))
+	change.add_child(cl)
+	change.add_child(_keycap("TAB"))
 	mode_popup = PopupMenu.new()
 	mode_popup.add_theme_font_size_override("font_size", 19)
 	for i in MODES.size():
@@ -305,48 +313,125 @@ func _build_play_cluster() -> void:
 		play_button.add_theme_color_override(fc, UITheme.SPACE)
 	play_button.pressed.connect(play_selected)
 	v.add_child(play_button)
+	var enter := _keycap("ENTER", true)
+	enter.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	enter.offset_left = -92
+	enter.offset_right = -26
+	enter.offset_top = -13
+	enter.offset_bottom = 13
+	play_button.add_child(enter)
 
 func _build_level_ring() -> void:
 	hud_right = HBoxContainer.new()
 	hud_right.name = "LevelHud"
-	hud_right.add_theme_constant_override("separation", 22)
 	hud_right.alignment = BoxContainer.ALIGNMENT_END
-	_place(hud_right, [1, 1, 1, 1], [-420, -FOOT_H - 210, -36, -FOOT_H - 22])
+	_place(hud_right, [1, 1, 1, 1], [-236, -EDGE - 66 - 188, -36, -EDGE - 66])
 	add_child(hud_right)
 	level_ring = LevelRing.new()
 	level_ring.custom_minimum_size = Vector2(160, 188)
 	hud_right.add_child(level_ring)
-	var keys := VBoxContainer.new()
-	keys.alignment = BoxContainer.ALIGNMENT_CENTER
-	keys.add_theme_constant_override("separation", 10)
-	hud_right.add_child(keys)
-	for k in [["ENTER", "Play"], ["TAB", "Mode"], ["ESC", "Back"]]:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
-		keys.add_child(row)
-		var cap := Label.new()
-		cap.text = k[0]
-		cap.custom_minimum_size = Vector2(64, 0)
-		cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cap.add_theme_font_size_override("font_size", 13)
-		cap.add_theme_stylebox_override("normal", UITheme.box(Color(UITheme.SPACE, 0.8), Color(UITheme.CREAM, 0.4), 1, 4))
-		row.add_child(cap)
-		var l := Label.new()
-		l.text = k[1]
-		l.add_theme_font_override("font", UITheme.font(400))
-		l.add_theme_font_size_override("font_size", 17)
-		row.add_child(l)
+
+## A key shown as a small keycap: "ENTER", "TAB". dark = for use on the cyan PLAY button.
+func _keycap(t: String, dark: bool = false) -> Label:
+	var cap := Label.new()
+	cap.text = t
+	cap.name = "Key" + t.capitalize()
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cap.custom_minimum_size = Vector2(48, 0)
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cap.add_theme_font_size_override("font_size", 13)
+	var col := UITheme.SPACE if dark else UITheme.CREAM
+	cap.add_theme_color_override("font_color", Color(col, 0.75))
+	var sb := UITheme.box(Color(col, 0.1), Color(col, 0.45), 1, 4)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 1
+	sb.content_margin_bottom = 1
+	cap.add_theme_stylebox_override("normal", sb)
+	return cap
+
+## Home card above the mode chip: reopens the last match's overview (#125: was a footer link).
+func _build_last_game() -> void:
+	last_game = Button.new()
+	last_game.name = "LastGame"
+	last_game.focus_mode = Control.FOCUS_NONE
+	last_game.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	last_game.add_theme_font_size_override("font_size", 18)
+	var card := UITheme.box(Color(UITheme.NAVY, 0.985), Color(UITheme.CYAN, 0.3), 1, 8)
+	last_game.add_theme_stylebox_override("normal", card)
+	var hov := card.duplicate()
+	hov.border_color = UITheme.CYAN
+	last_game.add_theme_stylebox_override("hover", hov)
+	last_game.add_theme_stylebox_override("pressed", hov)
+	last_game.custom_minimum_size = Vector2(0, 44)
+	last_game.pressed.connect(func(): show_screen("overview"))
+	play_cluster.add_child(last_game)
+	play_cluster.move_child(last_game, 0)   # above the mode chip; clear of the lobby's invite pins
+	_refresh_last_game()
+
+func _refresh_last_game() -> void:
+	var ov: Dictionary = launch.last_match
+	last_game.visible = false
+	if ov.is_empty():
+		return
+	var sc: Array = ov.get("score", [0, 0])
+	var me := int(ov.get("my_team", -1))
+	var a := int(sc[me]) if me in [0, 1] else int(sc[0])
+	var b := int(sc[1 - me]) if me in [0, 1] else int(sc[1])
+	last_game.text = "LAST GAME  ·  %s %d–%d  ·  VIEW" % [GameOverview.result_text(ov), a, b]
+	last_game.visible = true
+
+## Now-playing chip, bottom-right of Home (#125: was the right end of the footer).
+func _build_music() -> void:
+	music = Music.new()
+	music.name = "Music"
+	music.volume = settings().music_volume
+	add_child(music)
+	music_chip = music.build_widget()
+	_place(music_chip, [1, 1, 1, 1], [-36 - 330, -EDGE - 44, -36, -EDGE])
+	add_child(music_chip)
+
+## Status messages ("Host disconnected", bad name...) as a toast under the top bar that fades
+## out after a few seconds (#125: was orange text squeezed into the footer).
+func _build_toast() -> void:
+	toast = PanelContainer.new()
+	toast.name = "Toast"
+	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := UITheme.box(Color(UITheme.SPACE, 0.97), UITheme.ORANGE, 1, 8)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	toast.add_theme_stylebox_override("panel", sb)
+	toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	toast.offset_top = TOP_H + 12
+	add_child(toast)
+	status_label = Label.new()
+	status_label.name = "Status"
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status_label.add_theme_color_override("font_color", UITheme.CREAM)
+	status_label.add_theme_font_override("font", UITheme.body_font(600))
+	status_label.add_theme_font_size_override("font_size", 17)
+	toast.add_child(status_label)
+	_toast_timer = Timer.new()
+	_toast_timer.one_shot = true
+	_toast_timer.wait_time = 6.0
+	_toast_timer.timeout.connect(func(): toast.visible = false)
+	add_child(_toast_timer)
+	toast.visible = false
 
 func _build_panel() -> void:
 	panel = PanelContainer.new()
 	panel.name = "Panel"
-	var ps := UITheme.box(Color(UITheme.SPACE, 0.9), Color(UITheme.CYAN, 0.3), 1, 10)
+	var ps := UITheme.box(Color(UITheme.SPACE, 0.975), Color(UITheme.CYAN, 0.3), 1, 10)
 	ps.content_margin_left = 28
 	ps.content_margin_right = 28
 	ps.content_margin_top = 20
 	ps.content_margin_bottom = 20
 	panel.add_theme_stylebox_override("panel", ps)
-	_place(panel, [0.46, 0, 1, 1], [0, TOP_H + 22, -32, -FOOT_H - 22])
+	_place(panel, [0.46, 0, 1, 1], [0, TOP_H + 22, -32, -EDGE])
 	add_child(panel)
 	content_scroll = ScrollContainer.new()
 	content_scroll.name = "PanelScroll"
@@ -356,46 +441,20 @@ func _build_panel() -> void:
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 12)
 	content_scroll.add_child(content)
+	content.minimum_size_changed.connect(_fit_panel, CONNECT_DEFERRED)
+	resized.connect(_fit_panel, CONNECT_DEFERRED)
 
-func _build_footer() -> void:
-	var bar := PanelContainer.new()
-	bar.name = "Footer"
-	bar.add_theme_stylebox_override("panel", _bar_style(true))
-	_place(bar, [0, 1, 1, 1], [0, -FOOT_H, 0, 0])
-	add_child(bar)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 26)
-	bar.add_child(h)
-	var links := [["Replays", func(): show_screen("replays")], ["Controls", func(): show_screen("settings")],
-			["Report a bug", func(): OS.shell_open(BUG_URL)], ["Quit", func(): show_screen("quit")]]
-	if not launch.last_match.is_empty():
-		links.push_front(["Last game", func(): show_screen("overview")])
-	for l in links:
-		var b := Button.new()
-		b.text = str(l[0]).to_upper()
-		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 16)
-		_style_tab(b, false)
-		b.pressed.connect(l[1])
-		h.add_child(b)
-	status_label = Label.new()
-	status_label.name = "Status"
-	status_label.add_theme_color_override("font_color", UITheme.ORANGE)
-	status_label.add_theme_font_size_override("font_size", 16)
-	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_label.clip_text = true
-	status_label.text = launch.last_status
-	h.add_child(status_label)
-	var ver := Label.new()
-	ver.text = "BUILD v%s" % launch.version()
-	ver.add_theme_font_size_override("font_size", 14)
-	ver.add_theme_color_override("font_color", Color(UITheme.REGOLITH, 0.9))
-	h.add_child(ver)
-	music = Music.new()
-	music.name = "Music"
-	music.volume = settings().music_volume
-	h.add_child(music.build_widget())
-	add_child(music)
+## Shrink the panel to its content so short screens aren't mostly empty; long ones scroll (#125).
+func _fit_panel() -> void:
+	if panel == null or not panel.visible:
+		return
+	var ps := panel.get_theme_stylebox("panel")
+	var need := content.get_combined_minimum_size().y + ps.get_minimum_size().y + 4
+	var top := TOP_H + 22.0
+	var room := size.y - top - EDGE
+	panel.anchor_bottom = 0.0
+	panel.offset_top = top
+	panel.offset_bottom = top + clampf(need, 160.0, room)
 
 func _gap(w: int) -> Control:
 	var c := Control.new()
@@ -474,7 +533,7 @@ func _refresh_profile() -> void:
 	var n: String = settings().player_name
 	profile_name.text = (n if n != "" else "Rookie").to_upper()
 	avatar.text = (n.left(1) if n != "" else "?").to_upper()
-	profile_sub.text = "LV %d  ·  %s" % [profile.level(), _rating_line().to_upper()] if n != "" else "NEW PLAYER"
+	profile_sub.text = _rating_line().to_upper() if n != "" else "NEW PLAYER"
 	level_ring.level = profile.level()
 	level_ring.xp = profile.xp % Cosmetics.XP_PER_LEVEL
 	level_ring.need = Cosmetics.XP_PER_LEVEL
@@ -483,9 +542,6 @@ func _refresh_profile() -> void:
 
 ## ------------------------------------------------------------------ screens
 func show_screen(id: String) -> void:
-	if id == "quit":
-		get_tree().quit()
-		return
 	if id == current:
 		return
 	current = id
@@ -502,7 +558,11 @@ func show_screen(id: String) -> void:
 	panel.visible = not home
 	news.visible = home
 	hud_right.visible = home
-	play_cluster.visible = id != "welcome"   # pick a name before playing
+	music.set_widget_shown(home)
+	_refresh_last_game()
+	last_game.visible = last_game.visible and home
+	# One launch button on screen (#125): side panels have their own (KICK OFF, QUICK MATCH...).
+	play_cluster.visible = home
 	lobby.set_panel_open(not home)
 	_refresh_profile()
 	if not home:
@@ -510,6 +570,7 @@ func show_screen(id: String) -> void:
 		call("_screen_" + id)
 		content_scroll.scroll_vertical = 0
 		content_scroll.scroll_horizontal = 0
+		_fit_panel.call_deferred()
 
 ## Last match: result, players of the game, team stats, your line (src/ui/game_overview.gd).
 func _screen_overview() -> void:
@@ -526,6 +587,16 @@ func _screen_overview() -> void:
 	if rp != "" and FileAccess.file_exists(rp):
 		_button("Watch replay", func(): launch.start_game({"replay": rp}), h)
 	_button("Close", func(): show_screen("home"), h).name = "CloseOverview"
+
+## Esc on Home, or Quit in Settings (#125: Quit was a footer link that exited immediately).
+func _screen_quit() -> void:
+	content.add_child(UITheme.heading("Quit Crater Bowl?"))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	content.add_child(h)
+	_button("Quit", func(): get_tree().quit(), h).name = "ConfirmQuit"
+	var stay := _button("Keep playing", func(): show_screen("home"), h)
+	stay.grab_focus.call_deferred()
 
 func _screen_welcome() -> void:
 	content.add_child(UITheme.heading("Welcome to the Crater", 40, UITheme.CYAN))
@@ -611,7 +682,7 @@ func _screen_practice() -> void:
 		_text(desc.get(k, ""), h).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 func _screen_locker() -> void:
-	content.add_child(UITheme.heading("Locker"))
+	content.add_child(UITheme.heading("Locker room"))
 	profile.load_file(profile_path)
 	var lvl := profile.level()
 	_text("Level %d  ·  %d XP  (%d to next level). Earn XP by playing matches; cosmetics never affect gameplay."
@@ -648,12 +719,11 @@ func _screen_locker() -> void:
 	h2.add_child(sb)
 
 func _screen_leaders() -> void:
-	content.add_child(UITheme.heading("Leaderboards"))
+	content.add_child(UITheme.heading("Leaderboard"))
 	var lb := Leaderboard.new()
 	lb.load_file(leaderboard_path)
 	var rk := Ranked.new()
 	rk.load_file(ranked_path)
-	_text("Ranked: %s" % _rating_line())
 	var pos: Array = lb.positions()
 	if pos.is_empty():
 		_text("No matches recorded yet. Finish a match to get on the board.")
@@ -733,6 +803,14 @@ func _screen_settings() -> void:
 	content.add_child(UITheme.heading("Audio", 22, UITheme.CYAN))
 	_slider("Master volume", s.master_volume, 0.0, 1.0, 0.05, func(v): s.master_volume = v; launch.save_settings())
 	_slider("Menu music", s.music_volume, 0.0, 1.0, 0.05, func(v): s.music_volume = v; music.set_volume(v); launch.save_settings())
+	if music.widget_wanted():
+		var mh := HBoxContainer.new()
+		mh.add_theme_constant_override("separation", 10)
+		content.add_child(mh)
+		_text("Now playing", mh).custom_minimum_size.x = 200
+		_button("Previous", music.prev, mh)
+		_button("Pause / play", music.toggle_pause, mh)
+		_button("Next", music.next, mh)
 	content.add_child(UITheme.heading("Online", 22, UITheme.CYAN))
 	var mm := _line("Matchmaker address", s.matchmaker)
 	mm.text_submitted.connect(func(t): s.matchmaker = t.strip_edges(); launch.save_settings(); _status("Matchmaker set"))
@@ -761,6 +839,14 @@ func _screen_settings() -> void:
 		_text(str(t.get("credit", "%s - %s" % [t.get("artist", ""), t.get("title", "")]))).add_theme_font_size_override("font_size", 14)
 	content.add_child(UITheme.heading("Font credits", 22, UITheme.CYAN))
 	_text("Graduate, Teko and Barlow Semi Condensed, from Google Fonts. SIL Open Font License 1.1.").add_theme_font_size_override("font_size", 14)
+	# About: build, bug reports and quit live here (#125: were footer links).
+	content.add_child(UITheme.heading("About", 22, UITheme.CYAN))
+	_text("Crater Bowl  ·  build v%s" % launch.version())
+	var ah := HBoxContainer.new()
+	ah.add_theme_constant_override("separation", 10)
+	content.add_child(ah)
+	_button("Report a bug", func(): OS.shell_open(BUG_URL), ah)
+	_button("Quit game", func(): show_screen("quit"), ah).name = "QuitGame"
 
 func _unhandled_key_input(e: InputEvent) -> void:
 	if not (e is InputEventKey and e.pressed):
@@ -769,6 +855,9 @@ func _unhandled_key_input(e: InputEvent) -> void:
 		if e.keycode == KEY_ESCAPE and current not in ["home", "welcome"]:
 			get_viewport().set_input_as_handled()
 			show_screen("home")
+		elif e.keycode == KEY_ESCAPE and current == "home":
+			get_viewport().set_input_as_handled()
+			show_screen("quit")
 		elif current == "home" and e.keycode == KEY_TAB:
 			get_viewport().set_input_as_handled()
 			cycle_mode(-1 if e.shift_pressed else 1)
@@ -912,6 +1001,12 @@ func _rating_line() -> String:
 ## ------------------------------------------------------------------ widgets
 func _status(t: String) -> void:
 	status_label.text = t
+	toast.visible = t != ""
+	toast.reset_size()
+	toast.offset_left = -toast.size.x / 2.0
+	toast.offset_right = toast.size.x / 2.0
+	if t != "":
+		_toast_timer.start()
 
 func _text(t: String, parent: Node = null) -> Label:
 	var l := Label.new()
