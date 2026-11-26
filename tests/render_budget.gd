@@ -22,6 +22,9 @@ var _frame := 0
 
 func _initialize() -> void:
 	_main = load("res://scenes/main.tscn").instantiate()
+	# Pin the opening coin toss: the two outcomes put different props on the field
+	# (226 vs 227 instances), and a count must be the same every run (#180).
+	_main.toss_seed = 1
 	root.add_child(_main)
 	process_frame.connect(_tick)
 

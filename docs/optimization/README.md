@@ -92,7 +92,9 @@ The renderer's cost is roughly **draw calls x passes** plus **skinned vertices**
 | Object growth (min of two 400-frame windows; first-use allocations excluded) | 50 | about ±5 (a planted per-frame leak reads 405) | same |
 
 The render budgets are counts, not timings. They're identical on every machine, so they never
-flake. The CPU budgets use medians at about 3–5x the measured cost, so a busy machine doesn't
+flake. That holds only for a fixed scene: `tests/render_budget.gd` pins the coin toss
+(`toss_seed = 1`), as `tools/bench.gd` does, because the two outcomes differ by one instance and
+one material (#180). The CPU budgets use medians at about 3–5x the measured cost, so a busy machine doesn't
 fail them but an order-of-magnitude regression does.
 
 **Ratchet rule:** when you make something cheaper, lower the budget to about 1.25x the new

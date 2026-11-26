@@ -7,6 +7,7 @@ const Match := preload("res://src/sim/match.gd")
 const Protocol := preload("res://src/net/protocol.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
 const FieldArt := preload("res://src/game/art/field_art.gd")
+const HeadlessMeshGuard := preload("res://src/game/headless_mesh_guard.gd")
 const DT := 1.0 / 60.0
 const R := Athlete.Role
 const COLORS := [Color(0.95, 0.75, 0.15), Color(0.3, 0.8, 0.95)]
@@ -100,7 +101,8 @@ func test_client_derives_the_same_ends_from_the_snapshot() -> void:
 	assert_true(client.ends_switched(), "client sees Q2 switched ends")
 
 ## The nodes FieldArt.build names (Turf + EndZoneName0/1), without the meshes the
-## headless dummy renderer complains about.
+## headless dummy renderer complains about. The Label3Ds still own a mesh: free the tree
+## with HeadlessMeshGuard.free_node (#179).
 func _field_nodes() -> Node3D:
 	var root := Node3D.new()
 	var turf := GeometryInstance3D.new()   # stands in for the turf MeshInstance3D
@@ -134,4 +136,4 @@ func test_end_zone_cues_follow_offense_and_period() -> void:
 	# Same period, NEBULA on offense: the end behind it is the HELIOS end.
 	FieldArt.orient_ends(root, m.defended_end(1), COLORS)
 	assert_eq([near.text, far.text], ["HELIOS", "NEBULA"], "cues follow possession too (#93)")
-	root.free()
+	HeadlessMeshGuard.free_node(root)   # plain free() logs mesh_storage.h "m" is null (#179)

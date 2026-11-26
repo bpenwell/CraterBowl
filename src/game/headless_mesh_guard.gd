@@ -15,6 +15,17 @@ var _held: Array = []   # [WeakRef(node), mesh]: removed nodes whose mesh we kee
 static func needed() -> bool:
 	return DisplayServer.get_name() == "headless"
 
+## Frees `n` and its subtree without the dummy renderer's mesh-null error (#179).
+## Headless never draws, so a render instance's pending update (any instance_set_* since
+## its last flush) waits until some instance is freed. Label3D frees its own mesh before
+## its render instance, and freeing that instance flushes its pending update against the
+## dead mesh. Freeing a throwaway instance first flushes every pending update while the
+## meshes are alive. Use it for trees freed outside the scene tree (tests).
+static func free_node(n: Node) -> void:
+	if needed():
+		RenderingServer.free_rid(RenderingServer.instance_create())
+	n.free()
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().node_removed.connect(_on_node_removed)

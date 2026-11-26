@@ -62,7 +62,9 @@ ride along in your commit and would block it. Turn it on for a solo clone or CI-
    `--headless`) holds such meshes until the node is gone, so headless runs are clean. smoke.sh
    fails the boot, game_flow and menu_flow steps if that line reappears (#92). Freeing a mesh node
    outside the tree skips the guard: keep its mesh referenced until after `free()`
-   (see `CharacterArt.instance()`).
+   (see `CharacterArt.instance()`). A Label3D frees its own mesh, so a test that builds and
+   frees Label3Ds outside the tree frees them with `HeadlessMeshGuard.free_node()` (#179).
+   test.sh fails on any `ERROR:` line in the unit run and names the test that printed it.
 2. **Xvfb + Mesa software GL** (`scripts/shot.sh`). Real Compatibility (OpenGL 3) renderer on
    `llvmpipe` (CPU) inside a private virtual X display. You get real lighting, shadows, materials
    and HUD, and nothing appears on screen. It is slower (~6–7 fps), so capture a few frames rather
