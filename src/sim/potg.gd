@@ -14,12 +14,12 @@ const TEAM_NAMES := ["HELIOS", "NEBULA"]
 const WEIGHTS := {"pass_yds": 0.04, "pass_td": 4.0, "int_thrown": -2.0, "comp": 0.2,
 	"rec": 0.5, "rec_yds": 0.1, "rec_td": 6.0, "rush_yds": 0.1, "rush_td": 6.0,
 	"tkl": 1.0, "sack": 3.0, "int": 5.0, "pbu": 1.5, "ff": 3.0, "fr": 2.0, "def_td": 6.0, "blk": 0.3,
-	"int_ret_yds": 0.1, "fr_ret_yds": 0.1, "fg_made": 3.0, "kr_yds": 0.04, "pr_yds": 0.04}
+	"int_ret_yds": 0.1, "fr_ret_yds": 0.1, "fg_made": 3.0, "kr_yds": 0.04, "pr_yds": 0.04, "ret_td": 6.0}
 ## Category -> fields, for the card title of picks after the first.
 const CATEGORIES := [["TOP PASSER", ["pass_yds", "pass_td", "comp", "int_thrown"]],
 	["TOP RECEIVER", ["rec", "rec_yds", "rec_td"]], ["TOP RUSHER", ["rush_yds", "rush_td"]],
 	["DEFENSIVE STANDOUT", ["tkl", "sack", "int", "pbu", "ff", "fr", "def_td", "int_ret_yds", "fr_ret_yds"]], ["TRENCH ANCHOR", ["blk"]],
-	["SPECIAL TEAMS", ["fg_made", "kr_yds", "pr_yds"]]]
+	["SPECIAL TEAMS STANDOUT", ["ret_td", "fg_made", "kr_yds", "pr_yds"]]]
 
 static func impact(line: Dictionary) -> float:
 	var s := 0.0
@@ -96,6 +96,9 @@ static func stat_lines(l: Dictionary) -> Array:
 			dw += g.call(f[0]) * WEIGHTS[f[0]]
 	if not dfn.is_empty():
 		parts.append([dw, "  ".join(dfn)])
+	var return_tds: int = g.call("ret_td")
+	if return_tds > 0:
+		parts.append([return_tds * WEIGHTS["ret_td"], "%d RET TD" % return_tds])
 	if g.call("fg_att") > 0:
 		parts.append([g.call("fg_made") * WEIGHTS["fg_made"], "%d/%d FG%s" % [g.call("fg_made"), g.call("fg_att"),
 			("  LONG %d" % g.call("fg_long")) if g.call("fg_made") > 0 else ""]])
@@ -126,7 +129,8 @@ static func team_totals(athletes: Dictionary) -> Array:
 		var o: Dictionary = out[t]
 		o["pass_yds"] += int(round(float(l.get("pass_yds", 0.0))))
 		o["rush_yds"] += int(round(float(l.get("rush_yds", 0.0))))
-		o["td"] += int(l.get("pass_td", 0.0) + l.get("rush_td", 0.0) + l.get("def_td", 0.0))
+		o["td"] += int(l.get("pass_td", 0.0) + l.get("rush_td", 0.0)
+			+ l.get("def_td", 0.0) + l.get("ret_td", 0.0))
 		o["turnovers"] += int(l.get("int_thrown", 0.0))
 		o["tkl"] += int(l.get("tkl", 0.0))
 		o["sack"] += int(l.get("sack", 0.0))

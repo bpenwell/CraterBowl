@@ -6,7 +6,7 @@ const ROLE := {0: "QB", 1: "C", 2: "WR", 3: "RB", 4: "LB", 5: "CB", 6: "S", 7: "
 const FIELDS := ["att", "comp", "pass_yds", "pass_td", "int_thrown", "rec", "rec_yds", "rec_td",
 	"car", "rush_yds", "rush_td", "tkl", "sack", "int", "pbu", "ff", "fr", "pts", "blk", "def_td", "max_td_pts",
 	"int_ret_yds", "fr_ret_yds",
-	"fg_made", "fg_att", "fg_long", "xp_made", "xp_att", "punts", "punt_yds", "kr", "kr_yds", "pr", "pr_yds"]
+	"fg_made", "fg_att", "fg_long", "xp_made", "xp_att", "punts", "punt_yds", "kr", "kr_yds", "pr", "pr_yds", "ret_td"]
 ## Best-of fields: a new value replaces the old one only when larger (never summed).
 const MAX_FIELDS := ["max_td_pts", "fg_long"]
 
@@ -167,7 +167,8 @@ func _end_play(n: String, d: Dictionary) -> void:
 	if not on_offense:
 		if n == "touchdown":
 			_add(carrier, "pts", d.get("points", 6))
-			_add(carrier, "def_td")
+			var kick_return: bool = world.kicked and world.kick_play in ["kickoff", "punt"]
+			_add(carrier, "ret_td" if kick_return else "def_td")
 			_note_td_points(carrier, d.get("points", 6))
 		return   # returns (kick, punt, takeaway) are credited above
 	if _receiver >= 0 and carrier == _receiver:
@@ -269,6 +270,7 @@ func summary_lines() -> Array:
 		if l["punts"] > 0: st.append("%d punt %.1f avg" % [l["punts"], l["punt_yds"] / l["punts"]])
 		for f in [["kr", "kick ret"], ["pr", "punt ret"]]:
 			if l[f[0]] > 0: st.append("%d %s %dyd" % [l[f[0]], f[1], roundi(l[f[0] + "_yds"])])
+		if l["ret_td"] > 0: st.append("%d ret TD" % l["ret_td"])
 		if not st.is_empty(): parts.append(", ".join(st))
 		if parts.is_empty():
 			continue

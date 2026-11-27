@@ -30,6 +30,11 @@ func test_evaluate_only_new() -> void:
 	assert_true(first.has("first_td") and first.has("first_win"))
 	assert_eq(Ach.evaluate(ctx, first).size(), 0, "nothing new the second time")
 
+func test_return_touchdown_unlocks_first_td() -> void:
+	var ctx := {"line": {"ret_td": 1.0}}
+	assert_true(Ach.earned("first_td", ctx))
+	assert_true(not Ach.earned("pick_six", ctx))
+
 func test_stats_def_td_and_max_td_pts() -> void:
 	var w := World.new()
 	Roster.new().build(w, 3)

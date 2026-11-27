@@ -39,7 +39,8 @@ static func _finite_number(value) -> bool:
 static func earned(id: String, ctx: Dictionary) -> bool:
 	var l: Dictionary = ctx.get("line", {})
 	match id:
-		"first_td": return _f(l, "pass_td") + _f(l, "rec_td") + _f(l, "rush_td") + _f(l, "def_td") >= 1.0
+		"first_td":
+			return _f(l, "pass_td") + _f(l, "rec_td") + _f(l, "rush_td") + _f(l, "def_td") + _f(l, "ret_td") >= 1.0
 		"first_win": return ctx.get("won", false)
 		"gunslinger": return _f(l, "pass_yds") >= 300.0
 		"sure_hands": return _f(l, "rec") >= 8.0

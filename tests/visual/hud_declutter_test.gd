@@ -20,6 +20,7 @@ func _run() -> void:
 	game.auto_next = false
 	game.auto_replay = false
 	game.opening_kickoff = false
+	game.toss_cutscene = false   # these captures are about the HUD; the #129 cutscene has coin_toss_test.gd
 	game.configure(5)
 	game.ai.defense_enabled = false
 	game.set_physics_process(false)
@@ -80,6 +81,7 @@ func _run() -> void:
 
 	# Kickoff, you kick: no KICKOFF chip; the kick hint stays (only place you learn J / click).
 	series.start_match(1 - mine, false)
+	series.choose_toss(series.toss_winner, "receive")   # #129: bots pick after the coin lands; skip ahead
 	game.set_controlled(game.my_id)
 	await _refresh()
 	check(series.state == series.State.KICKOFF and game.world.offense_team == mine, "your kickoff")
@@ -89,6 +91,7 @@ func _run() -> void:
 
 	# Kickoff, you return: nothing to do yet, so no pill.
 	series.start_match(mine, false)
+	series.choose_toss(series.toss_winner, "receive")
 	game.set_controlled(game.my_id)
 	await _refresh()
 	check(series.state == series.State.KICKOFF and game.world.offense_team != mine, "their kickoff")

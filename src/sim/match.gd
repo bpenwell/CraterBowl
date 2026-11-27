@@ -16,7 +16,10 @@ const KICKOFF_SPOT_FRACTION := 0.35   # kick off from your own 35
 const SAFETY_KICK_FRACTION := 0.2     # free kick after a safety: from your own 20
 const PUNT_TOUCHBACK_FRACTION := 0.2  # punt touchback / missed FG minimum: own 20
 const KICKOFF_OOB_FRACTION := 0.4     # kickoff out of bounds: receive at own 40
-const TOSS_WINDOW := 5.0              # seconds the toss winner has to choose before receive is assumed
+const TOSS_REVEAL := 3.0              # #129: the coin is in the air this long (the cutscene's flip); then the result shows
+const TOSS_WINDOW := 5.0              # seconds the toss winner has, from the reveal, to choose before receive is assumed
+const TOSS_BOT_PICK := 1.2            # #129: a bot winner "thinks" this long after the reveal, then receives
+const TOSS_OUTRO := 0.9               # #129: after the pick the cutscene shows it and fades back; the play clock waits
 
 enum State { SCRIMMAGE, TRY, KICKOFF, TOSS }
 
@@ -37,6 +40,8 @@ var toss_winner := -1
 var toss_choice := ""    # "receive" / "kick" once decided
 var _kick_fraction := KICKOFF_SPOT_FRACTION
 var _toss_t := 0.0
+var _toss_bot := false   # the toss winner has no humans: it picks receive TOSS_BOT_PICK after the reveal
+var _toss_hold := 0.0    # seconds the kickoff's play clock still waits for the cutscene's outro
 
 func _init(w: World) -> void:
 	world = w
@@ -58,6 +63,7 @@ func start(offense: int = 0, los: float = -1.0) -> void:
 		los = kickoff_los()
 	state = State.SCRIMMAGE
 	opening_receiver = offense
+	_toss_hold = 0.0
 	clock.timeout_limit = Clock.SMALL_MATCH_TIMEOUTS if world.athletes.size() == 6 else Clock.TIMEOUTS_PER_HALF
 	clock.reset()
 	world.last_offensive_calls = ["", ""]
@@ -66,26 +72,32 @@ func start(offense: int = 0, los: float = -1.0) -> void:
 	world.set_offense(offense)
 	_setup_formation()
 
-## Coin toss (B09/C02): deterministic from `seed`. The winner has TOSS_WINDOW seconds
-## to choose kick or receive (choose_toss); bots / no answer = receive.
+## Coin toss (B09/C02): deterministic from `seed`. The coin is in the air for TOSS_REVEAL
+## seconds (the #129 cutscene), then the winner has TOSS_WINDOW seconds to choose kick or
+## receive (choose_toss); no answer = receive. A bot winner receives TOSS_BOT_PICK after
+## the reveal. The play clock is held for the whole toss (tick), so the cutscene never eats it.
 func start_match(seed: int, winner_has_humans: bool = true) -> void:
 	start(0)
 	toss_winner = posmod(seed, 2)
 	toss_choice = ""
 	_toss_t = 0.0
+	_toss_bot = not winner_has_humans
 	opening_receiver = toss_winner
 	_kickoff(toss_winner)
 	state = State.TOSS
 	world.set_offense(downs.offense_team)
 	_setup_formation()
-	if not winner_has_humans:
-		choose_toss(toss_winner, "receive")
 	match_event.emit("toss", {"winner": toss_winner})
+
+## Seconds since the toss started (host / offline; clients don't run the toss timer).
+func toss_elapsed() -> float:
+	return _toss_t
 
 func choose_toss(team: int, choice: String) -> bool:
 	if state != State.TOSS or team != toss_winner or not choice in ["receive", "kick"] or world.phase != World.Phase.PRESNAP:
 		return false
 	toss_choice = choice
+	_toss_hold = TOSS_OUTRO
 	opening_receiver = toss_winner if choice == "receive" else 1 - toss_winner
 	_kickoff(opening_receiver)
 	if downs.offense_team != world.offense_team:
@@ -237,11 +249,14 @@ func _kick_next(r: Dictionary, off: int) -> Dictionary:
 func tick(dt: float, snapper := Callable()) -> void:
 	if state == State.TOSS:
 		_toss_t += dt
-		if _toss_t >= TOSS_WINDOW:
+		if _toss_t >= TOSS_REVEAL + (TOSS_BOT_PICK if _toss_bot else TOSS_WINDOW):
 			choose_toss(toss_winner, "receive")
 	var live := world.phase == World.Phase.LIVE
-	# The toss runs on TOSS_WINDOW, not the play clock, so the kickoff gets all 20 s (#136).
-	var presnap := world.phase == World.Phase.PRESNAP and state != State.TOSS
+	# The toss runs on TOSS_WINDOW, not the play clock, so the kickoff gets all 20 s (#136),
+	# and that clock starts only once the cutscene has faded back to the field (#129).
+	var held := _toss_hold > 0.0
+	_toss_hold = maxf(0.0, _toss_hold - dt)
+	var presnap := world.phase == World.Phase.PRESNAP and state != State.TOSS and not held
 	var was_running := clock.running_between_plays
 	var snap_now := clock.tick(dt, live and state != State.TRY, presnap)
 	if not live and clock.take_warning():

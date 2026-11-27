@@ -8,6 +8,20 @@ Machine for all entries so far: WSL2 Ubuntu 24.04, i7-11800H (16 threads), RTX 3
 
 ---
 
+## 2026-11-26 — coin-toss cutscene render cost (#129)
+The toss cutscene hides the 14 match athletes and shows 3 puppets (2 captains + ref) and a coin.
+`tests/render_budget.gd` counts on this WSL box, headless (GPU-independent):
+
+| Scene | Triangles | Instances | Shadow casters | Materials | Skinned |
+|---|---|---|---|---|---|
+| Opening kickoff (the budget's scene, unchanged) | 204,060 | 226 | 85 | 142 | 14 |
+| Toss cutscene, captains walking (frame 40, `--toss=0`) | 78,080 | 158 | 65 | 79 | 3 |
+
+No budget changed. `render_budget.gd` turns the cutscene off (`toss_cutscene = false`) and takes the
+bots' toss pick at frame 4, so it still measures the opening kickoff it always did. The bench
+(`tools/bench.gd`) plays the cutscene in its first 5 s: scene p50 906 us, object growth 9, both inside the
+budgets.
+
 ## 2026-11-26 — perf-03: flaky object-growth check from play-picker churn (#169)
 
 `perf.sh` failed about half the time on origin/main c50b2ba with "objects grew by >= 51/52 in each of two

@@ -303,7 +303,7 @@ func test_potg_card_shows_kicking() -> void:
 	var kicker := {"team": 0, "pos": "QB", "owner": "Kay", "fg_made": 3.0, "fg_att": 4.0, "fg_long": 51.0}
 	var ret := {"team": 1, "pos": "S", "owner": "Bot", "kr": 3.0, "kr_yds": 96.0, "pr": 1.0, "pr_yds": 12.0}
 	assert_true(Potg.stat_lines(kicker).has("3/4 FG  LONG 51"), str(Potg.stat_lines(kicker)))
-	assert_eq(Potg.category(kicker), "SPECIAL TEAMS")
+	assert_eq(Potg.category(kicker), "SPECIAL TEAMS STANDOUT")
 	assert_near(Potg.impact(kicker), 9.0, 0.001, "an FG is worth 3")
 	var rl := Potg.stat_lines(ret)
 	assert_true(rl.has("96 KR YDS") and rl.has("12 PR YDS"), str(rl))

@@ -499,8 +499,18 @@ func break_stance(id: int) -> bool:
 func is_stance_locked(a: Athlete) -> bool:
 	return phase == Phase.PRESNAP and a.set_lock
 
-## Pre-snap rules for one athlete's input + resulting position. Shared by the
-## authoritative step and client prediction so both clamp identically.
+## Live classic dropbacks use real scrimmage lines. Free practice sets a
+## virtual line beyond the field so the quarterback can throw from anywhere.
+func _qb_dropback_speed_scale(a: Athlete) -> float:
+	if a.role != Athlete.Role.QB or a.team != offense_team or phase != Phase.LIVE \
+			or not ball.is_held_by(a.id) or forward_pass_thrown or not kick_play.is_empty() \
+			or is_chaos() or los_y > field.length:
+		return 1.0
+	var depth := los_y - a.position.y
+	var blend := clampf(inverse_lerp(T.QB_DROPBACK_SLOW_START, T.QB_DROPBACK_SLOW_END, depth), 0.0, 1.0)
+	return lerpf(1.0, T.QB_DROPBACK_SPEED_FLOOR, blend)
+
+## Shared athlete movement rules for the authoritative step and prediction.
 func step_athlete(a: Athlete, dir: Vector2, sprint: bool, dt: float, block := false) -> void:
 	if is_stance_locked(a):
 		a.face(dir)
@@ -509,7 +519,8 @@ func step_athlete(a: Athlete, dir: Vector2, sprint: bool, dt: float, block := fa
 		var start := a.position
 		var moving_special := a.move_t > 0.0
 		var active := phase == Phase.LIVE and a.can_act()
-		a.step(dir, sprint, dt, active and block and a.team == possession_team() and not ball.is_held_by(a.id))
+		var blocking := active and block and a.team == possession_team() and not ball.is_held_by(a.id)
+		a.step(dir, sprint, dt, blocking, _qb_dropback_speed_scale(a))
 		if active and not moving_special:
 			a.move_charge = minf(2.0, a.move_charge + start.distance_to(a.position) * T.MOVE_CHARGE_PER_YARD)
 
@@ -520,7 +531,7 @@ func _go_live() -> void:
 	for a in athletes:
 		a.set_lock = false
 
-## Client prediction: one athlete's step with the same pre-snap rules as step().
+## Client prediction: one athlete's step with the same movement rules as step().
 func predict_step(a: Athlete, dir: Vector2, sprint: bool, dt: float, block := false) -> void:
 	if phase == Phase.DEAD and ball.holder_id == a.id:
 		return

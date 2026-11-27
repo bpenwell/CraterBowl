@@ -86,12 +86,12 @@ func reset_state() -> void:
 	move_t = 0.0
 	velocity = Vector2.ZERO
 
-func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false) -> void:
+func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false, speed_scale := 1.0) -> void:
 	blocking = wants_block and can_act() and move_t <= 0.0
 	emote_cd = maxf(0.0, emote_cd - dt)
 	if dive_t > 0.0:
 		dive_t -= dt
-		velocity = facing * T.DIVE_SPEED
+		velocity = facing * (T.DIVE_SPEED * speed_scale)
 		position = field.clamp_playable(position + velocity * dt)
 		if dive_t <= 0.0:
 			dive_t = 0.0
@@ -103,9 +103,9 @@ func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false) -
 		position = field.clamp_playable(position + velocity * dt)
 		return
 	if move_t > 0.0:
-		velocity = facing * (T.SPIN_SPEED if spin_move else T.DASH_SPEED)
+		velocity = facing * ((T.SPIN_SPEED if spin_move else T.DASH_SPEED) * speed_scale)
 		position = field.clamp_playable(position + velocity * dt)
 		move_t = maxf(0.0, move_t - dt)
 		last_sprinting = false
 		return
-	super.step(input, wants_sprint, dt, blocking)
+	super.step(input, wants_sprint, dt, blocking, speed_scale)

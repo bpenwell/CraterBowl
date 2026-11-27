@@ -9,6 +9,7 @@ func _run() -> void:
 	current_scene = game
 	game.auto_next = false
 	game.opening_kickoff = false
+	game.toss_cutscene = false   # these captures are about the HUD; the #129 cutscene has coin_toss_test.gd
 	var series = game.series
 	series.start(0, 30.0)
 	game.set_controlled(game.my_id)
@@ -32,6 +33,7 @@ func _run() -> void:
 	await capture("scorebug-scrimmage")
 
 	series.start_match(0, false)
+	series.choose_toss(series.toss_winner, "receive")   # #129: bots pick after the coin lands; skip ahead
 	await _refresh()
 	check(overlay.down_l.text == "" and not overlay.field_strip.visible, "kickoffs: no KICKOFF chip (#131) and no line-to-gain strip")
 	await capture("scorebug-kickoff")

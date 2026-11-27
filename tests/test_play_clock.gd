@@ -132,7 +132,10 @@ func test_coin_toss_hides_and_holds_the_play_clock() -> void:
 	assert_eq(m.play_clock_shown(), int(Clock.PLAY_CLOCK), "fresh play clock for the kickoff")
 	var shown := _run_to_snap(m, ai, humans)
 	assert_true(m.world.kicked and snaps[0] <= 0.0, "bot kickoff after the toss waits for its clock (%.3f)" % snaps[0])
-	assert_near(shown.size() * DT, T.AI_SNAP_DELAY, 2.0 * DT, "not instantly after the choice (%.2f s)" % (shown.size() * DT))
+	# #129: the clock waits out the cutscene's outro (TOSS_OUTRO), then the bots' huddle runs.
+	assert_near(shown.size() * DT, T.AI_SNAP_DELAY + Match.TOSS_OUTRO, 2.0 * DT, "not instantly after the choice (%.2f s)" % (shown.size() * DT))
+	var held := shown.slice(0, int(Match.TOSS_OUTRO / DT) - 1)
+	assert_true(held.all(func(v): return v == held[0]), "the shown clock doesn't move during the outro (%s)" % str(held.slice(0, 6)))
 
 func test_timeout_gives_the_bot_offense_a_fresh_huddle() -> void:
 	var m := _match()

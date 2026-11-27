@@ -16,7 +16,7 @@ func record(dir: Vector2, sprint: bool, dt: float, block := false) -> int:
 
 ## Reset athlete to authoritative state (already applied by caller), drop acked
 ## inputs and replay the rest on top.
-## With `world`, replays use its pre-snap rules (stance lock, neutral zone).
+## With `world`, replays use the same movement rules as the host.
 func reconcile(athlete, acked_seq: int, world = null) -> void:
 	while not pending.is_empty() and pending[0][0] <= acked_seq:
 		pending.pop_front()

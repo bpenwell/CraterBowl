@@ -33,12 +33,16 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   bounds and touchdowns are unchanged. Numbers: `CONTACT_REACH`, `FORWARD_PROGRESS_GRACE`,
   `FORWARD_PROGRESS_BANNER` in `src/sim/tuning.gd`.
 - Four downs; failing on 4th is a turnover on downs, new offense at the mirrored spot (`goal − spot`).
+- **Deep QB dropbacks** (#252): the ball-carrying offense QB has full movement speed up to 14 yards behind the
+  line of scrimmage. Speed tapers to 65% at 20 yards and stays there at greater depths. Climbing back toward the line
+  restores speed. The limit covers normal movement, dashes, spins and dives before a forward pass. It applies on live
+  Classic scrimmage plays and excludes kick plays, Chaosball and free practice.
 - Snap: Space by any offensive human. If nobody snaps, the play clock auto-snaps. It defaults to 20 s (`Clock.PLAY_CLOCK`), and a hosted debug match can set every countdown with `--playclock=N` (#167).
 - **One play clock** (#136): the scorebug's `PLAY :NN` is the countdown the snap obeys. A bot-run offense's play clock
   is its huddle (`HUDDLE_SECONDS` 5 s, kickoffs `AI_SNAP_DELAY` 2.5 s) and the bots snap or kick when it reads 0;
   a human offense gets the full 20 s and may snap any time before. An unattended kickoff gets the default kick
   (`KICKOFF_DEFAULT_POWER`) at 0. The play clock is hidden and doesn't run while it governs no snap: live and dead
-  balls, the coin toss (its own `TOSS_WINDOW`), FINAL. A timeout or the one-minute warning restarts it (a fresh huddle
+  balls, the coin toss (its own `TOSS_WINDOW`) and its cutscene's fade back (`TOSS_OUTRO`, #129), FINAL. A timeout or the one-minute warning restarts it (a fresh huddle
   for bots). Clients show the same value: it is computed by `Match.play_clock_shown()` from snapshot state only.
 - Next play starts `NEXT_PLAY_DELAY` (2.0 s) after the whistle; Enter skips the wait (offline or host only; it was R before #138).
 
@@ -113,6 +117,10 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - Forward progress is the furthest point in contact, capped by how far opponents pushed the carrier. Whistling on
   first contact was rejected because it kills the contact game (spins, breaking a lean, the dive). The uncapped
   furthest point was rejected because a QB drifting back with a rusher on him would get the yards back on a sack.
+- The dropback taper follows depth in offense-frame yards so both offenses have the same window to move in the pocket.
+  A smooth ramp avoids a sudden speed change when crossing a yard line. The 65% floor gives the rush a closing advantage
+  while keeping enough control to move sideways and climb back toward the line. Host and client derive the scale from
+  the same movement step and existing snapshot fields.
 - Fields scale with match size so 3v3 isn't played on a lonely 100-yard field.
 - The clock once ran only during live plays, for predictable pacing. It now also runs after short in-bounds tackles
   so reaching the sideline matters. Timeouts reuse existing dead-ball phases instead of a separate timeout state,
@@ -144,12 +152,15 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   `tests/test_turnovers.gd`, `tests/test_tackling.gd`, `tests/test_match_sizes.gd`, `tests/test_field.gd`, `tests/test_switch_ends.gd`, `tests/game_flow.gd`,
   `tests/test_lobby.gd`, `tests/test_protocol.gd`, `tests/test_play_clock.gd`, `tests/visual/switch_ends_test.gd`,
   `tests/visual/play_clock_test.gd`, `tests/visual/quarter_clock_test.gd` (scorebug, Tab board and stadium screens at Q1 2:30).
+- `tests/test_qb_dropback.gd`, `tests/visual/qb_dropback_test.gd` cover authoritative and predicted speed plus keyboard-driven dropbacks.
 
 ## Open issues
 - #6 C04c Switching ends, mercy rule and clock actions (parent; #89 switching ends in review)
 - #90 Host mercy rule (28-point lead)
 - #91 Spike and kneel clock actions
 - #7 C05 Competitive rules: eligibility, grounding, blocking zone, QB slowdown
+- #253 Blocking zone and penalty flags
+- #254 Intentional grounding under pressure
 - #8 C06 Spotting: forward progress, return yards, fumble variety
 - #16 B10 Overtime for tied games
 - #39 B08 Tuning data file editable without code

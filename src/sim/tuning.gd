@@ -11,6 +11,9 @@ const SPIN_SPEED := 7.5
 const DASH_TIME := 0.22
 const SPIN_TIME := 0.32
 const MOVE_CHARGE_PER_YARD := 0.05
+const QB_DROPBACK_SLOW_START := 14.0  # yards behind the line of scrimmage
+const QB_DROPBACK_SLOW_END := 20.0
+const QB_DROPBACK_SPEED_FLOOR := 0.65
 
 # Stamina (0..1)
 const STAMINA_DRAIN := 0.25  # per second while sprinting

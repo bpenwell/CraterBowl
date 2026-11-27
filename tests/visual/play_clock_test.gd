@@ -19,6 +19,7 @@ func _run() -> void:
 	game.auto_next = false
 	game.auto_replay = false
 	game.opening_kickoff = false
+	game.toss_cutscene = false   # these captures are about the HUD; the #129 cutscene has coin_toss_test.gd
 	var series = game.series
 	var overlay = game.pres.overlay
 	var mine: int = game.world.get_athlete(game.my_id).team

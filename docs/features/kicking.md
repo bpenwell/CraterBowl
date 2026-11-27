@@ -8,7 +8,7 @@ Every classic match opens with a coin toss. Kickoffs are live plays with coverag
 ## How it plays
 | Situation | What happens |
 |---|---|
-| Coin toss | Deterministic from a seed (`--toss=N`). The winner has 5 s to press **1** (receive) or **2** (kick). Bots, or no answer, choose receive. The HUD pill says only `YOU WON THE TOSS` (no key hints, #131); the keys are in the controls list until the toss cutscene (#129). The other team receives the second half. |
+| Coin toss | Deterministic from a seed (`--toss=N`). It plays as a cutscene (#129, `presentation.md`): the coin is in the air for `TOSS_REVEAL` (3 s), then the winner picks **RECEIVE** or **KICK** on two cards (click, or **1** / **2**; no key hints anywhere) within `TOSS_WINDOW` (5 s, counted from the reveal). No answer = receive. A bot winner picks receive `TOSS_BOT_PICK` (1.2 s) after the reveal. After the pick the kickoff's play clock waits `TOSS_OUTRO` (0.9 s) while the cutscene shows the pick and fades back. The other team receives the second half. |
 | Kickoff | From your own 35 (`KICKOFF_SPOT_FRACTION`), or the 20 after a safety. The kicker is on the tee, coverage spreads out, and the receivers form a front row plus two deep returners (`KICKOFF_RETURNER_DEPTH`, their own 10). **Space** or the play clock gives a default kick (`KICKOFF_DEFAULT_POWER` 0.85). **J**/LMB fires an aimed kick on press. The arc previews the kick before you fire. |
 | Kickoff results | Return, touchback → own 25 (`KICKOFF_FRACTION`), out of bounds → own 40 (`KICKOFF_OOB_FRACTION`), or a rolled/downed spot. An unfielded ball that stops for `KICK_REST_TIME` is downed. |
 | Onside | Recovery past `ONSIDE_MIN_TRAVEL` (10 yd) exists as the `world.onside` mutator, **off by default**. Turning it on belongs to #42. |
@@ -21,6 +21,8 @@ Every classic match opens with a coin toss. Kickoffs are live plays with coverag
 
 Kick flight is a ballistic solve: `world.kick_velocity(kind, from, target, power)`. Speed runs from `KICK_SPEED_MIN` 14 to `KICK_SPEED_MAX` 27 yd/s, and the launch angle depends on the kick (`KICK_ANGLE`: punt 52°, FG 38°, kickoff 42°).
 
+A kickoff or punt return touchdown counts as a special-teams score in the [postgame stats](progression.md).
+
 ## Design decisions
 - **Kicks reuse the passing aim.** The aim point sets the direction and the distance used to calculate power (pillar 3). Rejected: automatic kicks from distance plus a random roll (no skill, nothing to watch) and a separate swinging-needle minigame (a new input mode and UI per kick type).
 - **Kicks are deterministic.** No random wobble, so the skill is aim plus power. The ball flies through the real sim, so blocks, catches, bounces and touchbacks are physics, not dice.
@@ -30,6 +32,13 @@ Kick flight is a ballistic solve: `world.kick_velocity(kind, from, target, power
 - **Fair-catch rules are NFL-style with these deviations:** no fair-catch free kick, no invalid-signal penalty, and the kicking team still downs a loose kick on touch (existing simplification), so a muff can't be recovered by the kicking team. The kickoff spot uses the NFL's 2023 rule (fair catch behind the 25 = the 25), which equals our kickoff touchback spot. "No advance after a signal" matters here: without it, signal-then-let-it-bounce would be a free return behind an unblockable returner.
 - **Bot fair catch is a pressure rule, not a roll.** Deterministic and readable: coverage within 5 yd of where the ball comes down, and the ball already descending (so the decision isn't made at the kick). Kicks stay deterministic.
 - **Online:** the signal rides the existing `snap` action (host-authoritative). Snapshots carry `fc` (the signaler) only while a signal is active, because snapshots sit just under the 1400-byte budget (#193). Clients derive "kick in the air" from `kicked` + ball state (`World.kick_in_air()`), so no extra fields.
+- **The toss is timed by the sim, shown by the cutscene (#129).** `Match` owns every toss time: the reveal (`TOSS_REVEAL`), the choice window, the bot pick and the clock hold after it (`TOSS_OUTRO`). The cutscene (`src/game/coin_toss.gd`) only follows `state` / `toss_winner`, so the host stays authoritative and clients just play it. Why the sim changed:
+  - **The window starts at the reveal.** With the old 5 s from the match start, a 3 s coin flight would have left the winner 2 s with the cards.
+  - **Bots wait for the coin to land.** They used to pick at once, which ended the toss before the cutscene could show it and let the kickoff's play clock run underneath it.
+  - **The play clock waits for the fade.** Without `TOSS_OUTRO` the pick, dip and fade back (0.88 s) would come off the kickoff clock, and a bot kickoff (`AI_SNAP_DELAY` 2.5 s) would go 1.6 s after the field reappears.
+  - Rejected: holding the sim in `TOSS` until the cutscene ends (the outcome is decided, and every "choose → KICKOFF" test and client would have to learn a second meaning of `TOSS`), and running the clock hold in `main.gd` (rules stay in `src/sim`).
+  - Choices are still accepted before the reveal (tests, a blind 1 / 2): the cutscene then skips straight to the kickoff, since there's nothing left to reveal.
+  - No `Protocol.VERSION` bump: the toss timers run on the host only. Clients read `ms` / `tw` and the play clock from snapshots, as before.
 - **Tests that assumed the old automatic touchback** were changed to expect live kickoffs. `game_flow` resets to a scrimmage for its legacy steps (`opening_kickoff`), and `net_test`'s host runs `--no-kickoff`.
 
 ## Code and tests
@@ -45,7 +54,9 @@ Kick flight is a ballistic solve: `world.kick_velocity(kind, from, target, power
   - `tests/test_kicking.gd`: about 30 tests, including a full bot match with kicks
   - `tests/test_kicking_stats.gd`: kicking stats from real kicks, and a bot match whose FG/XP stats must match the scoreboard; `tests/visual/kicking_stats_test.gd` captures them in the game overview
   - `tests/test_fair_catch.gd`: signal window, spots (punt, kickoff inside/past the 25, end zone), muffs, teammate catch, signaler protection, blocked kick, bot rule, snapshot
-  - `tests/game_flow.gd`: toss, aimed kickoff + arc + return, K punt, K K field goal, fair catch on the real Space key
+  - `tests/game_flow.gd`: toss, aimed kickoff + arc + return, K punt, K K field goal, fair catch on the real Space key; the #129 toss cutscene (click / 1 / AFK / bot pick / skip / drills, frames 14000-16212)
+  - `tests/test_kicking.gd` toss tests: window from the reveal, bot pick after the reveal, the outro clock hold, cutscene timing matches the sim
+  - `tests/visual/coin_toss_test.gd`: the cutscene's captures (see `presentation.md`)
   - `tests/visual/fair_catch_test.gd`: captures `fair-catch-prompt`, `fair-catch-signal`, `fair-catch-whistle`
   - The scoring, clock and match-size tests expect live kickoffs
 

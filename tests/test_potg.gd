@@ -12,6 +12,13 @@ func _line(team: int, pos: String, owner: String, f: Dictionary) -> Dictionary:
 		l[k] = float(f.get(k, 0))
 	return l
 
+func test_return_touchdown_display_and_team_total() -> void:
+	var line := {"team": 1, "ret_td": 1.0}
+	assert_eq(Potg.stat_lines(line), ["1 RET TD"])
+	assert_eq(Potg.category(line), "SPECIAL TEAMS STANDOUT")
+	assert_near(Potg.impact(line), Potg.impact({"def_td": 1.0}))
+	assert_eq(Potg.team_totals({3: line})[1]["td"], 1)
+
 func test_picks_between_two_and_four() -> void:
 	var a := {}
 	for i in 8:

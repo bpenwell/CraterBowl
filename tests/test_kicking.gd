@@ -8,6 +8,7 @@ const AI := preload("res://src/sim/ai.gd")
 const Passing := preload("res://src/sim/passing.gd")
 const P := preload("res://src/net/protocol.gd")
 const T := preload("res://src/sim/tuning.gd")
+const Stats := preload("res://src/sim/stats.gd")
 const DT := 1.0 / 60.0
 const R := Athlete.Role
 
@@ -91,17 +92,59 @@ func test_coin_toss_times_out_to_receive() -> void:
 	var m := Match.new(_world())
 	m.start_match(1)
 	assert_eq(m.toss_winner, 1)
+	# #129: the window opens when the coin lands (TOSS_REVEAL), so the winner gets all of it.
 	for i in int((Match.TOSS_WINDOW + 0.2) / DT):
+		m.tick(DT)
+	assert_eq(m.state, Match.State.TOSS, "still choosing: the window runs from the reveal")
+	while m.toss_elapsed() < Match.TOSS_REVEAL + Match.TOSS_WINDOW - 0.1:
+		m.tick(DT)
+	assert_eq(m.state, Match.State.TOSS, "still choosing 0.1 s before the window ends")
+	for i in int(0.2 / DT):
 		m.tick(DT)
 	assert_eq(m.state, Match.State.KICKOFF, "window over")
 	assert_eq(m.toss_choice, "receive")
 	assert_eq(m.world.offense_team, 0, "home kicks to the toss winner")
 	assert_eq(m.world.phase, World.Phase.PRESNAP, "still presnap (no accidental kick)")
 
-func test_bot_toss_winner_receives_immediately() -> void:
+## #129: the kickoff's play clock waits out the cutscene's outro after the pick, then runs.
+func test_coin_toss_outro_holds_the_kickoff_clock() -> void:
+	var m := Match.new(_world())
+	m.start_match(0)
+	while m.toss_elapsed() < Match.TOSS_REVEAL + 1.0:
+		m.tick(DT)
+	assert_true(m.choose_toss(0, "kick"), "winner kicks")
+	for i in int((Match.TOSS_OUTRO - 0.05) / DT):
+		m.tick(DT)
+	assert_near(m.clock.play_clock, m.clock.PLAY_CLOCK, 0.001, "held through the outro")
+	for i in int(0.3 / DT):
+		m.tick(DT)
+	assert_true(m.clock.play_clock < m.clock.PLAY_CLOCK - 0.1, "then it runs (%.2f)" % m.clock.play_clock)
+	m.start(0)
+	m.tick(DT)
+	assert_true(m.clock.play_clock < m.clock.PLAY_CLOCK, "a fresh series has no leftover hold")
+
+## The cutscene's timeline matches the sim: the coin lands on the reveal and the outro
+## (pick, dip, fade back) fits inside the sim's clock hold.
+func test_coin_toss_cutscene_fits_the_sim_timing() -> void:
+	var CT := preload("res://src/game/coin_toss.gd")
+	assert_eq(CT.LAND, Match.TOSS_REVEAL, "coin lands on the reveal")
+	assert_true(CT.HOLD + CT.DIP + CT.UNDIP <= Match.TOSS_OUTRO, "outro fits the clock hold")
+	assert_true(CT.FLIP_AT < CT.LAND and CT.WALK_END < CT.FLIP_AT, "walk, flip, land in order")
+
+## #129: a bot winner waits for the coin to land (the cutscene's reveal), "thinks" for
+## TOSS_BOT_PICK, then receives. The play clock never runs while it does.
+func test_bot_toss_winner_receives_after_the_reveal() -> void:
 	var m := Match.new(_world())
 	m.start_match(1, false)
+	assert_eq(m.state, Match.State.TOSS, "coin in the air: nobody has chosen yet")
+	while m.toss_elapsed() < Match.TOSS_REVEAL + Match.TOSS_BOT_PICK - 0.05:
+		m.tick(DT)
+	assert_eq(m.state, Match.State.TOSS, "bot still choosing just before TOSS_BOT_PICK")
+	assert_near(m.clock.play_clock, m.clock.PLAY_CLOCK, 0.001, "play clock held through the toss")
+	for i in int(0.1 / DT):
+		m.tick(DT)
 	assert_eq(m.state, Match.State.KICKOFF)
+	assert_eq(m.toss_choice, "receive", "bots receive")
 	assert_eq(m.opening_receiver, 1)
 	# 2nd half: the other team receives.
 	m.clock.quarter = 2
@@ -250,6 +293,8 @@ func test_onside_recovery() -> void:
 func test_kickoff_return_touchdown() -> void:
 	var m := _kickoff_match(0)
 	var w := m.world
+	var stats := Stats.new()
+	stats.attach(w, func(_aid): return "Ace")
 	w.kick(w.kicker().id, Vector2(w.field.width / 2.0, 100.0), 0.75)
 	var ret := w.returner()
 	_park_all_but(w, [ret.id])
@@ -258,6 +303,7 @@ func test_kickoff_return_touchdown() -> void:
 	ret.position = Vector2(20, -0.5)
 	_steps(w, 2)
 	assert_true(events.has("touchdown"), "return TD")
+	_assert_return_touchdown(stats, ret)
 	var out := m.next_play()
 	assert_eq(m.score[1], 6, "return team +6")
 	assert_eq(out["outcome"], "try")
@@ -340,6 +386,53 @@ func test_punt_return_tackled() -> void:
 	var out := m.next_play()
 	assert_eq(out["outcome"], "punt_return")
 	assert_near(w.los_y, 40.0, 0.5, "return team at its 40")
+
+func test_punt_return_touchdown() -> void:
+	var m := _match(30.0)
+	var w := m.world
+	var stats := Stats.new()
+	stats.attach(w, func(_aid): return "Ace")
+	_fourth_down(m, 30.0)
+	m.call_kick("punt")
+	w.snap()
+	_steps(w, 30)
+	var ret := w.returner()
+	_park_all_but(w, [w.find_role(0, R.C).id, w.kicker().id, ret.id])
+	assert_true(w.kick(w.kicker().id, Vector2(w.field.width / 2.0, 70.0), 0.7))
+	ret.position = _landing(w)
+	_steps(w, 400)
+	assert_true(w.ball.is_held_by(ret.id), "returner fields the punt")
+	ret.position = Vector2(20, -0.5)
+	_steps(w, 2)
+	assert_true(events.has("touchdown"))
+	_assert_return_touchdown(stats, ret)
+	m.next_play()
+	assert_eq(m.score[1], 6)
+
+func _assert_return_touchdown(stats: Stats, ret: Athlete) -> void:
+	var line: Dictionary = stats.athletes.get(ret.id, {})
+	assert_eq(line.get("ret_td", 0.0), 1.0)
+	assert_eq(line.get("def_td", 0.0), 0.0)
+	assert_eq(line.get("pts", 0.0), 6.0)
+	assert_true(stats.summary_lines().any(func(s): return s.ends_with("1 ret TD")))
+
+func test_takeaway_touchdown_on_an_unkicked_punt_is_defensive() -> void:
+	var m := _match(30.0)
+	var w := m.world
+	var stats := Stats.new()
+	stats.attach(w, func(_aid): return "Ace")
+	_fourth_down(m, 30.0)
+	m.call_kick("punt")
+	w.snap()
+	_steps(w, 30)
+	var defender := w.returner()
+	assert_true(not w.kicked, "the punt hasn't been kicked")
+	w.ball.hold(defender.id)
+	defender.position = Vector2(20, -0.5)
+	_steps(w, 2)
+	var line: Dictionary = stats.athletes.get(defender.id, {})
+	assert_eq(line.get("ret_td", 0.0), 0.0)
+	assert_eq(line.get("def_td", 0.0), 1.0)
 
 func test_fake_punt_plays_normal_downs() -> void:
 	var m := _match(30.0)

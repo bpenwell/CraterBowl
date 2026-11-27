@@ -25,11 +25,15 @@ func _initialize() -> void:
 	# Pin the opening coin toss: the two outcomes put different props on the field
 	# (226 vs 227 instances), and a count must be the same every run (#180).
 	_main.toss_seed = 1
+	_main.toss_cutscene = false   # #129: budget the opening kickoff, not the cutscene (3 skinned meshes)
 	root.add_child(_main)
 	process_frame.connect(_tick)
 
 func _tick() -> void:
 	_frame += 1
+	if _frame == 4:
+		# #129: the bots pick after the coin lands now; take their pick so the kick still goes at 5.
+		_main.series.choose_toss(_main.series.toss_winner, "receive")
 	if _frame == 5:
 		_main.world.snap()
 	if _frame < 40:
