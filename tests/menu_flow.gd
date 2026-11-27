@@ -259,11 +259,9 @@ func _setup() -> void:
 			var button = launch._overlay.find_child("ControlsButton", true, false)
 			button.pressed.emit()
 			var help = launch._overlay.find_child("ControlsHelp", true, false)
-			var notes = help.get_node("ControlsNotes")
-			var bindings = help.get_node("ControlsBindings")
-			check(help.visible and notes.text.contains("right click: block")
-				and bindings.get_children().any(func(label): return label.text == "Show scoreboard (hold)"),
-				"pause Controls lists the gameplay bindings")
+			var rows: Dictionary = help.rows("keyboard")
+			check(help.visible and rows.get("Block") == ["R-CLICK"] and rows.get("Scoreboard") == ["TAB"]
+				and rows.get("Snap") == ["K"], "pause Controls lists the gameplay bindings (rebound snap K): %s" % str(rows))
 			button.pressed.emit()
 			check(not help.visible, "Controls toggles the existing help")
 			_key(KEY_ESCAPE)],

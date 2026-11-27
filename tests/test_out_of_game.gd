@@ -126,7 +126,9 @@ func test_gamepad_mapping() -> void:
 	assert_true(k[KEY_D] and k[KEY_W] and not k[KEY_A] and not k[KEY_S], "up-right")
 	var z := Controls.stick_keys(Vector2(0.2, 0.1))
 	assert_true(not (z[KEY_W] or z[KEY_A] or z[KEY_S] or z[KEY_D]), "deadzone")
-	assert_true(Controls.help_text({"snap": KEY_K}).find("K") >= 0, "help shows bound key")
+	var snap_line: Array = Array(Controls.help_text({"snap": KEY_K}).split("\n")).filter(
+		func(l): return l.strip_edges().begins_with("Snap"))
+	assert_true(not snap_line.is_empty() and snap_line[0].ends_with(" K"), "help shows bound key: %s" % str(snap_line))
 
 func test_registry_lists_validates_expires() -> void:
 	var r := Registry.new()

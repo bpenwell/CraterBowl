@@ -38,8 +38,63 @@ func test_gamepad_follows_new_defaults() -> void:
 
 func test_hint_copy_names_new_keys() -> void:
 	var help := Controls.help_text({})
-	assert_true(help.find("hold C") >= 0 and help.find("T performs") < 0, "taunt hint says hold C")
+	assert_eq(_row(Controls.page("keyboard", {}), "Taunt")["keys"], ["C"], "taunt row names C")
+	assert_true(help.find("T performs") < 0, "no stale taunt copy")
 	assert_true(help.find("wheel: pick taunt") < 0, "the mouse wheel no longer picks taunts (#139)")
+
+## #134: the Pause -> Controls page.
+static func _row(sections: Array, label: String) -> Dictionary:
+	for s in sections:
+		for r in s[1]:
+			if r["label"] == label:
+				return r
+	return {}
+
+static func _headings(sections: Array) -> Array:
+	return sections.map(func(s): return s[0])
+
+func test_controls_page_sections_short_and_small() -> void:
+	assert_eq(_headings(Controls.page("keyboard", {})), ["Move", "Ball", "Game"], "keyboard sections")
+	assert_eq(_headings(Controls.page("gamepad", {})), ["Move", "Ball", "Game"], "gamepad sections")
+	for which in ["keyboard", "more", "gamepad"]:
+		for s in Controls.page(which, {}):
+			assert_true(s[1].size() <= 6, "%s/%s: at most 6 rows (fits 1280x720)" % [which, s[0]])
+			for r in s[1]:
+				assert_true(r["label"].find("(") < 0 and r["label"].length() <= 16, "%s: short label, no parentheses" % r["label"])
+				assert_true(not r["keys"].is_empty(), "%s/%s has a key" % [which, r["label"]])
+	assert_eq(_row(Controls.page("keyboard", {}), "Throw")["keys"], ["L-Click", "J"], "mouse throw is a row")
+	assert_eq(_row(Controls.page("keyboard", {}), "Block")["keys"], ["R-Click"], "mouse block is a row")
+	var consts: Dictionary = (load("res://src/ui/controls.gd") as Script).get_script_constant_map()
+	assert_true(consts.has("ACTIONS") and not consts.has("OTHER_CONTROLS"), "the footer wall is gone")
+
+func test_controls_page_lists_every_action_with_its_bound_key() -> void:
+	var b := Controls.rebind(Controls.rebind({}, "dash", KEY_X), "try1", KEY_7)
+	for bindings in [{}, b]:
+		var listed := {}
+		for which in ["keyboard", "more"]:
+			for s in Controls.PAGE_KEYBOARD if which == "keyboard" else Controls.PAGE_MORE:
+				for r in s[1]:
+					for k in r[1]:
+						listed[k] = true
+		for a in Controls.ACTIONS:
+			assert_true(listed.has(a[0]), "%s is on the Keyboard or More tab" % a[0])
+	assert_eq(_row(Controls.page("keyboard", b), "Dash")["keys"], ["X"], "rebound dash shows X")
+	assert_eq(_row(Controls.page("more", b), "Extra point")["keys"], ["7"], "rebound try shows 7")
+	assert_eq(_row(Controls.page("keyboard", {}), "Move")["keys"], ["W", "A", "S", "D"], "WASD")
+	assert_eq(_row(Controls.page("more", {}), "Break stance")["note"], "x2", "double-tap shown")
+
+func test_controls_page_gamepad_matches_pad_map() -> void:
+	var listed := {}
+	for s in Controls.PAGE_GAMEPAD:
+		for r in s[1]:
+			for k in r[1]:
+				listed[k] = true
+	for action in Controls.PAD_BUTTONS.values() + Controls.PAD_TRIGGERS.values():
+		assert_true(listed.has(action), "pad action %s is on the Gamepad tab" % action)
+	var pad := Controls.page("gamepad", {})
+	assert_eq(_row(pad, "Throw")["keys"], ["RT"], "RT throws")
+	assert_eq(_row(pad, "Sprint")["keys"], ["LT", "L3"], "LT / L3 sprint")
+	assert_eq(_row(pad, "Next play")["keys"], ["D-Up"], "d-pad up next play")
 
 func test_migration_untouched_player_gets_new_defaults() -> void:
 	assert_eq(Controls.migrate_bindings({}, 1), {}, "never rebound: empty overrides = new defaults")

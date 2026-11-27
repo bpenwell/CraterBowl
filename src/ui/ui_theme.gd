@@ -127,3 +127,25 @@ static func heading(text: String, size: int = 34, color: Color = CREAM) -> Label
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	return l
+
+## Key-cap chip: a key, button or mouse input drawn as a small cap (Controls page, #134).
+static func key_cap(text: String, size: int = 16) -> PanelContainer:
+	var cap := PanelContainer.new()
+	var s := box(Color(CYAN, 0.1), Color(CYAN, 0.55), 1, 4)
+	s.content_margin_left = 7
+	s.content_margin_right = 7
+	s.content_margin_top = 0
+	s.content_margin_bottom = 0
+	s.border_width_bottom = 2
+	cap.add_theme_stylebox_override("panel", s)
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := Label.new()
+	l.name = "Key"
+	l.text = text.to_upper()
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.custom_minimum_size = Vector2(14, 0)
+	l.add_theme_font_override("font", font(700))
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", CREAM)
+	cap.add_child(l)
+	return cap
