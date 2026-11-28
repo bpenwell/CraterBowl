@@ -113,7 +113,10 @@ the run so later first-run cases (`menu_boot_test`, `lobby_real_render_test`) pr
 Add a `tests/visual/<scenario>_test.gd` script extending `tests/visual/harness.gd`. Exercise the
 production scene, assert the relevant behavior with `check()`, then `await capture("state-name")`
 while that state is visible. Finish with `finish()` so failed checks fail the run. Inspect the PNG
-before opening the PR. The PR tests workflow uploads the captures and test logs as
+before opening the PR. A pixel assertion on a root capture maps the Control rectangle from
+`root.get_visible_rect()` to the image size. The logical viewport can be smaller than the
+captured image on a scaled display (see `knockback_cull_test.gd`, #428).
+The PR tests workflow uploads the captures and test logs as
 `visual-test-evidence`; link that Actions artifact in the PR for the full set of captures and logs.
 The images you embed in the PR are **before/after pairs** (next section).
 
