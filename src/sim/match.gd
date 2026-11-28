@@ -331,7 +331,7 @@ func next_play() -> Dictionary:
 	# #253: a flag from this down. The defense keeps a better result, else it is enforced.
 	var flag: Dictionary = {} if world.flags.is_empty() or world.is_chaos() else world.flags[0]
 	world.flags = []
-	var enforce_flag := not flag.is_empty() and not Penalties.defense_declines(r, downs, state == State.TRY)
+	var enforce_flag := not flag.is_empty() and not Penalties.defense_declines(r, downs, state == State.TRY, flag)
 	if not flag.is_empty() and not enforce_flag:
 		match_event.emit("penalty", {"penalty": flag, "declined": true, "ruling": Penalties.ruling(flag, {"declined": true})})
 	var kick_out := {}
@@ -391,8 +391,13 @@ func _enforce_penalty(flag: Dictionary) -> Dictionary:
 	clock.running_between_plays = false
 	var ruling := Penalties.ruling(flag, res)
 	match_event.emit("penalty", {"penalty": flag, "declined": false, "result": res, "ruling": ruling})
-	return {"outcome": "turnover_on_downs" if res["turnover_on_downs"] else "replay_down", "los": downs.los,
-		"down": downs.down, "offense": downs.offense_team, "penalty": flag, "ruling": ruling}
+	var outcome := "replay_down"
+	if res["turnover_on_downs"]:
+		outcome = "turnover_on_downs"
+	elif flag.get("loss_of_down", false) and state != State.TRY:
+		outcome = "next_down"
+	return {"outcome": outcome, "los": downs.los, "down": downs.down, "offense": downs.offense_team,
+		"penalty": flag, "ruling": ruling}
 
 ## Returns true when there is no next play.
 func _advance_expired_period() -> bool:

@@ -347,7 +347,7 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 ## Wire/sim compatibility version. Bump it in the same PR as any change to the wire format
 ## (message keys or fields, snapshot layout, action shapes) or to sim rules a host and client
 ## must agree on (src/sim). Rule and reasons: docs/design/netcode.md "Version handshake".
-const VERSION := 8
+const VERSION := 9
 const VERSION_FILE := "res://VERSION"
 const VERSION_FLAG := "--protocol-version="   # debug: pretend to be another version (net_test.sh)
 

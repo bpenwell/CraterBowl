@@ -56,6 +56,8 @@ var snapped_run := false
 var sent_handoff := false
 var handoff_to := -1
 var remote_handoff_confirmed := false
+var sent_grounding_throw := false
+var got_grounding_flag := false
 var checked_retreated_keeper := false
 var xp_before := 0
 var games_before := 0
@@ -131,6 +133,8 @@ func _on_event(n: String, _d: Dictionary) -> void:
 		got_timeout_event = true
 	if n == "handoff" and _d.get("by") == aid:
 		handoff_to = int(_d["to"])
+	if n == "flag" and _d.get("type") == "intentional_grounding":
+		got_grounding_flag = true
 	if n == "awards":
 		got_awards = true
 		check(main.player_name == "Ann" and not _d["xp"].has("Ann"),
@@ -222,6 +226,11 @@ func _physics_process(_dt: float) -> bool:
 		equipped_number = main.views[aid].number_text
 	if bad_snap_sent_at > 0 and f > bad_snap_sent_at + 90:
 		_test_remote_handoff()
+	if remote_handoff_confirmed and not sent_grounding_throw and main.world.los_y == 42.0 and main.world.ball.is_held_by(aid):
+		main.pov_enabled = false
+		main.aim_point = Vector2(4.0, 22.0)
+		sent_grounding_throw = true
+		_key(KEY_J)
 	if remote_handoff_confirmed and not checked_retreated_keeper:
 		_check_retreated_keeper()
 	if f == 1500 or (remote_handoff_confirmed and got_awards and got_summary):
@@ -255,6 +264,7 @@ func _physics_process(_dt: float) -> bool:
 		check(requested_slants and called_run, "remote QB audibles from Slants to Inside Zone in the play picker")
 		check(remote_handoff_confirmed, "client QB hands off through G and sees the host's RB possession")
 		check(remote_handoff_confirmed and main.controlled_id == aid, "online QB keeps the same athlete after the handoff")
+		check(sent_grounding_throw and got_grounding_flag, "online J throw receives the host's grounding flag")
 		check(checked_retreated_keeper, "received the host's retreated keeper snapshot")
 		check(got_awards and main.profile.xp == xp_before + 100 and main.profile.games == games_before + 1,
 			"same-named losing client receives only its own 100 XP")
@@ -264,7 +274,8 @@ func _physics_process(_dt: float) -> bool:
 		var mine: Array = main.match_overview()["my_lines"]
 		check(got_summary and shared_td_line and not mine.any(func(l): return str(l).contains("1TD")),
 			"same-named client's Your game leaves out the host Ann's touchdown line (%s)" % str(mine))
-		check(mine.filter(func(l): return str(l).contains(" car ")) == ["QB: 1 car 7yd 0TD"],
+		# The earlier grounding fixture also records the local QB’s incomplete pass.
+		check(mine.filter(func(l): return str(l).contains(" car ")) == ["QB: 0/1 0yd 0TD 0INT | 1 car 7yd 0TD"],
 			"QB's Your game shows only the local player's fumbled keeper (%s)" % str(mine))
 		print("NET FLOW " + ("PASS" if ok else "FAIL"))
 		quit(0 if ok else 1)

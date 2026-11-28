@@ -653,7 +653,8 @@ func _launch(a: Athlete, v: Vector3, power: float, lob: bool) -> bool:
 	var id := a.id
 	var t_land := Passing.time_to_height(v, from.z, T.CATCH_HEIGHT, gravity())
 	var target := Vector2(from.x + v.x * t_land, from.y + v.y * t_land)
-	_check_blocking_zone(target)
+	if not _check_grounding(a, target, t_land):
+		_check_blocking_zone(target)
 	ball.state = Ball.State.IN_FLIGHT
 	ball.holder_id = -1
 	ball.position = from
@@ -794,6 +795,31 @@ func linemen_past_zone() -> Array:
 
 ## At a forward pass: flag illegal man downfield. A pass landing at or behind the line (a
 ## screen) is exempt, as in real football, since only passes that cross the line care.
+## A rushed throw away from eligible targets is a spot foul (#254).
+func _check_grounding(passer: Athlete, target: Vector2, flight: float) -> bool:
+	if not blocking_zone_active() or passer.team != offense_team:
+		return false
+	var pressured := false
+	var receiver_radius_sq := T.GROUNDING_RECEIVER_RADIUS * T.GROUNDING_RECEIVER_RADIUS
+	var pressure_radius_sq := T.GROUNDING_PRESSURE_RADIUS * T.GROUNDING_PRESSURE_RADIUS
+	for a in athletes:
+		if a.team != passer.team:
+			if a.can_act() and a.engaged_with < 0 and a.position.distance_squared_to(passer.position) <= pressure_radius_sq:
+				pressured = true
+			continue
+		if a == passer or not is_eligible_receiver(a) or field.zone_of(a.position) == Field.Zone.OUT_OF_BOUNDS:
+			continue
+		var projected: Vector2 = a.position + a.velocity * flight
+		if a.position.distance_squared_to(target) <= receiver_radius_sq or (
+			field.zone_of(projected) != Field.Zone.OUT_OF_BOUNDS and projected.distance_squared_to(target) <= receiver_radius_sq
+		):
+			return false
+	if not pressured:
+		return false
+	throw_flag(Penalties.make(Penalties.INTENTIONAL_GROUNDING, offense_team, true, maxf(1.0, passer.position.y),
+		0.0, passer.id, false, true))
+	return true
+
 func _check_blocking_zone(target: Vector2) -> void:
 	if not blocking_zone_active() or target.y <= los_y:
 		return
