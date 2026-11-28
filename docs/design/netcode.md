@@ -64,7 +64,7 @@ see when hosting, joining, queueing) lives in `docs/features/` (online play). La
 | `welcome` | S→C | reliable, ch 0 | `aid`, `size`, `mode`, `v` (host's protocol version, #224) | from peer 1; `P.host_version_refusal(v)` must be `""`, else the client refuses the host (see [Version handshake](#version-handshake-165)); `aid` must index an athlete, `size` is 3, 5 or 7 (default 7), and `mode` is classic (default) or chaosball. Invalid fields leave the current assignment intact |
 | `snap` | S→all | unreliable-ordered, ch 1, 30 Hz | see Snapshots | from peer 1; tick `t` > last seen |
 | `ev` | S→all | reliable, ch 0 | `n` (event name), `d` | from peer 1; `d` forced to Dictionary |
-| `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()` | from peer 1; `s` is a Dictionary |
+| `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()`, with host settings including boolean `pass_marker` (#108) | from peer 1; `s` is a Dictionary |
 
 `snap` and `ev` are only broadcast once at least one peer holds an athlete; `lobby` once any peer exists.
 The host re-broadcasts every world event from `main.gd:_on_world_event`, plus match-level `looks`,
@@ -99,6 +99,8 @@ never show up there.
   `flip_play`, `handoff`, `timeout` (no args); `dash`/`spin` (finite `dir`, clamped); `throw` (finite
   target `t`, finite power `p` clamped 0–1, `lob` bool); `try` (`n` ∈ {1,2}); `play` (name in
   `Routes.PLAYBOOK`/`RUN_PLAYS`); `defense` (in `DefensivePlaybook.CALLS`); `route` (in `Routes.ROUTES`).
+  The `formation` action takes the formation index `f` (Balanced 0, Twins Right 1, #345). The host allows it
+  for the offensive QB before a Classic scrimmage snap and sends the new wideout positions in its ordinary snapshots.
   The kicking actions are `kick` (finite target `t` and power `p` clamped to 0–1),
   `kick_call` (`k` is `""`, `"punt"` or `"fg"`), and `toss` (`c` is `"receive"` or `"kick"`).
   Other actions return `{}`, including legacy `team` and `pick` requests.
@@ -180,7 +182,8 @@ Whether CI should enforce the bump is #223; today it's a review rule.
 | `moves` | 2 per athlete: `move_charge`, `move_t` |
 | `b` | ball: state, holder, pos xyz, vel xyz |
 | `d`, `s`, `c`, `to` | downs (offense, down, los, first-down y), score, clock (half, remaining, play clock, final, quarter, quarter length in seconds), timeouts |
-| `ph`, `off`, `los`, `fpt`, `pt`, `ms`, `tp` | world phase, offense team, LOS, forward pass thrown, last possession, match state, try points |
+| `ph`, `off`, `los`, `pt`, `ms`, `tp` | world phase, offense team, LOS, last possession, match state, try points |
+| `pf` | Pass flags. Bit 0 tracks whether a forward pass has been thrown. Bit 1 tracks whether a runner has carried the ball across the LOS this down (#312). |
 | `pl`, `rt`, `dc`, `rf`, `hc`, `cs` | play name, route index per athlete (-1 none), defensive call, run flipped, handoff cooldown, Chaosball streak/hold |
 | `ack` | athlete id → last input `seq` the server consumed (`NetSession.acks()`) |
 

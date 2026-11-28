@@ -6,10 +6,11 @@ extends RefCounted
 ## reuse `enforce()`. Pure + deterministic. Yards are offense-frame (0 = own goal line).
 
 const ILLEGAL_MAN_DOWNFIELD := "illegal_man_downfield"
-const NAMES := {ILLEGAL_MAN_DOWNFIELD: "ILLEGAL MAN DOWNFIELD"}
+const INTENTIONAL_GROUNDING := "intentional_grounding"
+const NAMES := {ILLEGAL_MAN_DOWNFIELD: "ILLEGAL MAN DOWNFIELD", INTENTIONAL_GROUNDING: "INTENTIONAL GROUNDING"}
 
 ## A flag. `team` fouled; `offense` says which side that was on this down; `spot` is the
-## line of scrimmage (offense frame) the foul is enforced from; `yards` the full distance;
+## yard line (offense frame) the foul is enforced from; `yards` the additional distance;
 ## `replay` = the down is replayed, `loss_of_down` = it counts (#254); `player` = who fouled.
 static func make(type: String, team: int, offense: bool, spot: float, yards: float,
 		player := -1, replay := true, loss_of_down := false) -> Dictionary:
@@ -23,7 +24,7 @@ static func name_of(p: Dictionary) -> String:
 ## The defense's automatic option on an offensive foul: keep the play's result when it is
 ## better for the defense than the penalty (a takeaway or defensive score, a safety, a
 ## failed try, or a turnover on downs). `r` is Match.last_result.
-static func defense_declines(r: Dictionary, downs, is_try: bool) -> bool:
+static func defense_declines(r: Dictionary, downs, is_try: bool, flag := {}) -> bool:
 	var off: int = downs.offense_team
 	var t := str(r.get("type", "incomplete"))
 	if int(r.get("team", off)) != off:
@@ -36,6 +37,8 @@ static func defense_declines(r: Dictionary, downs, is_try: bool) -> bool:
 		return true
 	if downs.down >= 4:
 		var spot: float = downs.los if t == "incomplete" else float(r.get("spot", downs.los))
+		if flag.get("type") == INTENTIONAL_GROUNDING:
+			return spot < downs.first_down_y and spot <= float(flag["spot"])
 		return spot < downs.first_down_y
 	return false
 
@@ -82,7 +85,7 @@ static func ruling(p: Dictionary, result := {}) -> String:
 		var yd := "%s YD" % _yd(float(result["yards"]))
 		if result.get("half_distance", false):
 			yd += ", HALF THE DISTANCE"
-		parts.append(yd)
+		parts.append("SPOT FOUL" if p.get("type") == INTENTIONAL_GROUNDING else yd)
 		if result.get("try", false):
 			parts.append("REPLAY TRY")
 		elif result.get("turnover_on_downs", false):

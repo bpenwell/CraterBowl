@@ -24,6 +24,7 @@ func _physics_process(dt: float) -> bool:
 		if not set_quarters:
 			_key(KEY_Q)   # #130: no-op now (halves are gone); the client checks the lobby stayed quarters
 			_key(KEY_H)   # 2.5 -> 3-min quarters
+			_key(KEY_I)   # #108: disable the pass landing marker in the hosted match
 			set_quarters = true
 		return false
 	if not reported_ids:   # match started: the joiner's install id came in through the lobby (#102)
@@ -60,6 +61,21 @@ func _physics_process(dt: float) -> bool:
 			main.world.event.connect(_finish_after_handoff)
 	return false
 
+## Give the real client a pass with pressure and no receiver near the aim point.
+func _offer_grounding_throw() -> void:
+	const Tick := preload("res://src/sim/tick.gd")
+	main.series.start(1, 42.0)
+	var world = main.world
+	var qb = world.find_role(1, main.Athlete.Role.QB)
+	world.start_live_with(qb.id)
+	qb.position = Vector2(26.0, 37.0)
+	world.find_role(0, main.Athlete.Role.LB).position = qb.position + Vector2(2.0, 0.0)
+	world.step({}, 1.0 / Tick.HZ)
+	for frame in 120:
+		if world.forward_pass_thrown:
+			break
+		await physics_frame
+
 func _throw_opening_pass() -> void:
 	threw_opening_pass = true
 	var world = main.world
@@ -78,6 +94,12 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.event.disconnect(_finish_after_handoff)
 	# Let the joiner observe the handoff before setting up the final score.
 	await create_timer(0.5).timeout
+	_send_contested_interception()
+	await _send_sideline_results()
+	await _show_dead_ball_drop()
+	_record_retreated_keeper()
+	await create_timer(0.45).timeout
+	await _offer_grounding_throw()
 	main.stats.award_stats.clear()
 	_record_pass_before_seat_replacement()
 	_record_run_before_seat_replacement()
@@ -92,6 +114,69 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.phase = main.World.Phase.DEAD
 	main.series.last_result = {"type": "incomplete"}
 	main.next_play()
+
+## Resolve the live sim race against a receiver and let its event reach the client.
+func _send_contested_interception() -> void:
+	main.series.start(0, 25.0)
+	var w = main.world
+	var qb = w.find_role(0, main.Athlete.Role.QB)
+	for a in w.athletes:
+		a.position = Vector2(4.0, 22.0 + 3.0 * a.id)
+	qb.position = Vector2(20.0, 20.0)
+	w.find_role(0, main.Athlete.Role.WR).position = Vector2(20.95, 40.0)
+	w.find_role(1, main.Athlete.Role.CB).position = Vector2(20.0, 40.0)
+	w.start_live_with(qb.id)
+	assert(w.throw(qb.id, Vector2(20.0, 40.0), main.T.PLAYER_PASS_POWER))
+	for tick in 90:
+		if w.ball.state != w.Ball.State.IN_FLIGHT:
+			break
+		w.step({}, 1.0 / w.Tick.HZ)
+
+## Same airborne pass, opposite rulings based on where the receiver stands.
+func _send_sideline_results() -> void:
+	var w = main.world
+	for receiver_x in [0.55, -0.55]:
+		main.series.start(0, 25.0)
+		var qb = w.find_role(0, main.Athlete.Role.QB)
+		for a in w.athletes:
+			a.position = Vector2(32.0, 26.0 + 2.0 * a.id)
+		qb.position = Vector2(5.0, 20.0)
+		w.start_live_with(qb.id)
+		assert(w.throw(qb.id, Vector2(-0.75, 38.0), 0.8))
+		for tick in 100:
+			if w.ball.position.x < -0.2 or w.phase == w.Phase.DEAD:
+				break
+			w.step({}, 1.0 / w.Tick.HZ)
+		w.find_role(0, main.Athlete.Role.WR).position = Vector2(receiver_x, w.ball.position.y)
+		w.step({}, 1.0 / w.Tick.HZ)
+		await create_timer(0.25).timeout
+
+## Broadcast an elevated breakup and leave the dead-ball hold on screen for the client.
+func _show_dead_ball_drop() -> void:
+	main.series.start(0, 40.0)
+	var w = main.world
+	var qb = w.find_role(0, main.Athlete.Role.QB)
+	for a in w.athletes:
+		a.position = Vector2(30.0, 25.0 + 3.0 * a.id)
+	qb.position = Vector2(12.0, 35.0)
+	w.find_role(1, main.Athlete.Role.CB).position = Vector2(13.0, 45.0)
+	w.start_live_with(qb.id)
+	assert(w.throw(qb.id, Vector2(12.0, 50.0), main.T.PLAYER_PASS_POWER))
+	var saved_auto_next: bool = main.auto_next
+	main.auto_next = false
+	await create_timer(1.6).timeout
+	main.auto_next = saved_auto_next
+
+## Let the real client observe the host's crossing state after it has retreated.
+func _record_retreated_keeper() -> void:
+	main.series.start(1, 37.0)
+	var world = main.world
+	var qb = world.find_role(1, main.Athlete.Role.QB)
+	world.start_live_with(qb.id)
+	qb.position = Vector2(6.0, world.los_y + 2.0)
+	world.step({}, 1.0 / world.Tick.HZ)
+	qb.position.y = world.los_y - 3.0
+	world.step({}, 1.0 / world.Tick.HZ)
 
 ## Give the real client the QB seat between another player's throw and catch.
 func _record_pass_before_seat_replacement() -> void:

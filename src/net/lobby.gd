@@ -13,7 +13,8 @@ const MatchConfig := preload("res://src/sim/match_config.gd")
 var phase: Phase = Phase.LOBBY
 var host_id := 1
 var code := ""
-var settings := {"size": 7, "mode": "classic", "quarters": true, "quarter_minutes": DEFAULT_QUARTER_MINUTES}
+var settings := {"size": 7, "mode": "classic", "quarters": true, "quarter_minutes": DEFAULT_QUARTER_MINUTES,
+	"pass_marker": true}
 var players := {}   # id -> {"name": String, "ready": bool}
 var expected := 0   # queue matches: auto-start only once this many players are present
 var notice := ""    # host-facing: why the last settings change was refused ("" = none)
@@ -69,6 +70,9 @@ func set_setting(by: int, key: String, value) -> bool:
 			if not valid_quarter_minutes(value):
 				return false
 			value = float(value)
+		"pass_marker":
+			if not (value is bool):
+				return false
 		"mode":
 			if not (value is String and (value == "classic" or value == "chaosball")):
 				return false
@@ -112,9 +116,11 @@ func from_dict(d: Dictionary) -> void:
 	if s is Dictionary:
 		# A pre-#130 host's halves settings ("quarters": false, "half_minutes") read as quarters.
 		var qmin = s.get("quarter_minutes", DEFAULT_QUARTER_MINUTES)
+		var marker = s.get("pass_marker", true)
 		settings = {"size": int(s.get("size", 7)),
 			"mode": "chaosball" if s.get("mode", "") == "chaosball" else "classic", "quarters": true,
-			"quarter_minutes": float(qmin) if valid_quarter_minutes(qmin) else DEFAULT_QUARTER_MINUTES}
+			"quarter_minutes": float(qmin) if valid_quarter_minutes(qmin) else DEFAULT_QUARTER_MINUTES,
+			"pass_marker": marker if marker is bool else true}
 	var p = d.get("players", {})
 	players = p if p is Dictionary else {}
 
@@ -123,8 +129,8 @@ func summary() -> String:
 	for id in players:
 		names.append("%s%s" % [players[id]["name"], " ✓" if players[id]["ready"] else ""])
 	var mode_txt := "Chaosball " if settings.get("mode", "classic") == "chaosball" else ""
-	return "%s%dv%d, %s-min quarters | %d/%d players | %s" % [mode_txt, settings["size"], settings["size"],
-		String.num(settings["quarter_minutes"]),
+	return "%s%dv%d, %s-min quarters | Pass marker %s | %d/%d players | %s" % [mode_txt, settings["size"], settings["size"],
+		String.num(settings["quarter_minutes"]), "on" if settings["pass_marker"] else "off",
 		players.size(), capacity(), ", ".join(names)]
 
 ## A supported quarter length in minutes (int or float: 2 and 2.0 both count).
