@@ -70,6 +70,30 @@ func _key(code: int, pressed: bool = true) -> void:
 func _initialize() -> void:
 	steps = [[1, _setup]]
 
+## #217: freeing an in-tree Label3D (or its parent) right after a render-instance update
+## must not log the dummy renderer's `Parameter "m" is null`; smoke.sh fails on that line.
+## Launch's HeadlessMeshGuard flushes the update while the Label3D's own mesh is alive.
+func _add_label3ds() -> void:
+	check(launch.get_children().any(func(c): return c.get_script() == launch.HeadlessMeshGuard), "headless mesh guard running")
+	var field := Node3D.new()
+	field.name = "LabelField217"
+	root.add_child(field)
+	for i in 3:
+		var l := Label3D.new()
+		l.text = "YD %d" % i
+		field.add_child(l)
+
+## Each free runs a frame after the labels' last update: a Label3D builds its mesh deferred.
+func _free_in_tree_label3d() -> void:
+	var field := root.get_node("LabelField217")
+	field.get_child(0).free()
+	for l in field.get_children():   # re-enter the world: queues a fresh instance update
+		field.remove_child(l)
+		field.add_child(l)
+
+func _free_label3d_parent() -> void:
+	root.get_node("LabelField217").queue_free()
+
 func _setup() -> void:
 	launch = root.get_node("Launch")
 	rec.real = launch
@@ -92,7 +116,10 @@ func _setup() -> void:
 	root.add_child(menu)
 	current_scene = menu
 	steps += [
+		[2, _add_label3ds],
+		[3, _free_in_tree_label3d],
 		[3, func(): check(menu.current == "welcome", "first run asks for a name")],
+		[4, _free_label3d_parent],
 		[4, func():
 			menu.content.find_child("NameEdit", true, false).text = "x"
 			_btn(menu.content, "Continue").pressed.emit()

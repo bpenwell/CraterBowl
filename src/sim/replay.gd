@@ -1,13 +1,20 @@
 extends RefCounted
 ## Match recording + playback. Pure (file I/O via save/load only).
 
+const Tick := preload("res://src/sim/tick.gd")
 const FRAME_EVERY := 2           # physics ticks per frame (60 Hz -> 30 Hz)
-const FPS := 30.0
+const FPS := Tick.HZ / FRAME_EVERY
 const HEADER := 4                # phase, ball x, y, z
 const PER_ATHLETE := 3           # x, y, flags
+## Per-athlete flag bits. 1 and 2 since v1; 4, 8 and 16 since v3 (older files: off).
+const F_DIVING := 1
+const F_GROUNDED := 2
+const F_PUSH := 4                # pushing in a block (the view's push pose); set by the caller
+const F_CATCH := 8               # reaching for a pass (the view's catch pose); set by the caller
+const F_FAIR_CATCH := 16         # the returner signalling a fair catch (raised arm + label)
 const END_EVENTS := ["tackle", "out_of_bounds", "touchdown", "incomplete", "explode"]
 const BIG_PLAY_YARDS := 20.0     # gains (or losses) this long are highlights
-const SLOWMO_TAIL := 60          # frames (2 s) of slow motion at the end of a highlight clip
+const SLOWMO_TAIL := int(2.0 * FPS)  # frames (2 s) of slow motion at the end of a highlight clip
 const SLOWMO_SPEED := 0.35
 
 var frames: Array = []           # Array[PackedFloat32Array]
@@ -23,9 +30,10 @@ var _world = null
 # --- recording ---
 func attach(world) -> void:
 	_world = world
-	world.event.connect(_on_event)
+	world.event.connect(record_event)
 
-func _on_event(n: String, d: Dictionary) -> void:
+## Consume a local world event or a ruling relayed by the match host.
+func record_event(n: String, d: Dictionary) -> void:
 	if n == "snap":
 		plays.append({"start": frames.size(), "end": frames.size(), "label": "Play %d" % (plays.size() + 1),
 			"summary": "", "highlight": false, "yards": 0.0, "kind": "run", "tags": [], "context": context,
@@ -88,16 +96,27 @@ func _finish(i: int, n: String, d: Dictionary) -> void:
 	p["highlight"] = not tags.is_empty() or absf(yards) >= BIG_PLAY_YARDS
 	p["label"] = "Play %d%s: %s" % [i + 1, (" (%s)" % p["context"]) if p["context"] != "" else "", p["summary"]]
 
-func capture(world) -> void:
+## `view_bits[i]` holds athlete i's F_PUSH / F_CATCH bits. Push and catch windows are view
+## logic (player.gd replay_bits), so the game passes them in; empty = none. frame_due() says
+## whether this call records a frame, so the game only computes them then.
+func capture(world, view_bits := PackedByteArray()) -> void:
 	_tick += 1
 	if _tick % FRAME_EVERY != 0:
 		return
 	var f := PackedFloat32Array([world.phase, world.ball.position.x, world.ball.position.y, world.ball.position.z])
-	for a in world.athletes:
-		f.append_array([a.position.x, a.position.y, (1.0 if a.is_diving() else 0.0) + (2.0 if a.is_grounded() else 0.0)])
+	var fair: int = world.fair_catch_id if int(world.phase) == 1 else -1
+	for i in world.athletes.size():
+		var a = world.athletes[i]
+		var bits := (F_DIVING if a.is_diving() else 0) | (F_GROUNDED if a.is_grounded() else 0) \
+			| (F_FAIR_CATCH if a.id == fair else 0) | (view_bits[i] if i < view_bits.size() else 0)
+		f.append_array([a.position.x, a.position.y, float(bits)])
 	frames.append(f)
 	if _open >= 0:
 		plays[_open]["end"] = frames.size()
+
+## The next capture() call records a frame.
+func frame_due() -> bool:
+	return (_tick + 1) % FRAME_EVERY == 0
 
 func last_play() -> Dictionary:
 	var i := last_play_index()
@@ -230,7 +249,7 @@ func save(path: String) -> bool:
 	var f := FileAccess.open_compressed(path, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
 	if f == null:
 		return false
-	f.store_var({"version": 2, "meta": meta, "plays": plays, "frames": frames})
+	f.store_var({"version": 3, "meta": meta, "plays": plays, "frames": frames})
 	return true
 
 func load_file(path: String) -> bool:

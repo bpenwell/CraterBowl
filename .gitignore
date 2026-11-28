@@ -13,6 +13,7 @@
 .mm-server.log
 .mm-a.log
 .mm-b.log
+.mm-test.log
 .parity-*.log
 .menu-flow.log
 build/

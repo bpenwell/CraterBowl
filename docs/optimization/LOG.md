@@ -8,6 +8,100 @@ Machine for all entries so far: WSL2 Ubuntu 24.04, i7-11800H (16 threads), RTX 3
 
 ---
 
+## 2026-11-26 — perf-10: the football is one mesh (#159)
+
+The old ball was a SphereMesh stretched 1.75x plus a lace box and two `TorusMesh` stripes at the
+default 64x32 tessellation (~4k triangles each). The new ball (`src/game/art/football.gd`) is one
+code-built 20x14 mesh (560 triangles) with the seams, laces and stripes drawn by
+`football.gdshader`. `perf.sh` render budget, same machine (native Windows, Godot 4.3, opengl3),
+`feat/244-ball-carry-pose` @ d56023a vs this branch:
+
+| | before | after |
+|---|---|---|
+| triangles | 204,060 | 196,064 (−7,996) |
+| instances | 226 | 223 |
+| shadow casters | 85 | 82 |
+| materials | 142 | 141 |
+
+Budgets in `tests/render_budget.gd` ratcheted down by the same amounts. CPU medians unchanged
+within noise (scene_frame_p50 965 µs after; the ball has no per-frame work beyond its transform).
+
+## 2026-11-26 — perf-09: catch stance and reach (#246)
+
+Same machine and mode as perf-05, CPU load 26%, 3 rounds interleaved, scene_frame p50 / p99 medians in µs:
+#245 tree 1123 (1088–1239) / 3584; #246 tree 997 (991–1074) / 2452. No measurable cost: only the few
+athletes near a pass's catch point run the catch IK, and only while it's in the air. The #246 tree
+measuring *faster* is noise, not a win: it only adds code, and the #245 runs had p99 spikes up to 5163 µs
+in this session. Render budget unchanged (no meshes or materials).
+
+## 2026-11-26 — perf-08: decide who looks at 10 Hz (#245)
+
+`player.gd` now decides "near the camera" and "watches the ball" at `LOOK_DECIDE_HZ` (10 Hz, staggered by
+athlete id) instead of every frame; carrying, down and celebrating still apply at once. Same machine and
+mode as perf-05, CPU load 16% (quiet, so tighter spread than perf-06/07), 3 rounds interleaved,
+scene_frame p50 / p99 medians in µs:
+
+| Tree | p50 | p99 |
+|---|---|---|
+| #244 baseline | 919 (909–929) | 1898 |
+| role rules, decided every frame | 969 (963–972) | 1927 |
+| role rules, decided at 10 Hz | 948 (942–993) | 1924 |
+
+The head look's cost goes from about +50 to about +29 µs/frame (about 3% of this headless frame). Round 1 of
+the throttled tree was an outlier (993); rounds 2–3 were 21–27 µs under the per-frame tree. Remaining cost:
+the look math for the athletes who do look, plus the per-frame target and blend update.
+
+## 2026-11-26 — perf-07: only athletes who need the ball watch it (#245)
+
+Behavior change for realism (owner's call): defense reads the ball unless blocked; offensive linemen
+only on a loose ball nearby; other offense at the snap and on a pass or loose ball within 15 yd;
+nobody while engaged (`player.gd` `watches_ball()`). Same machine and mode as perf-05, CPU load 46%,
+3 rounds interleaved, scene_frame p50 medians in µs: #244 baseline 953 (935–987); camera cutoff only
+1022 (1016–1044); cutoff + role rules 1023 (1015–1038). No measurable gain: fewer heads run the look
+math, but every view now runs the role check per frame, and the net is inside the noise (about ±40 µs
+at this load). Note the cutoff-only tree measured +69 here vs +41 in perf-06: the remaining cost of
+the feature is roughly +40 to +70 µs/frame. Likely next step if it matters: decide "near camera" and
+"watches the ball" at 10 Hz (staggered by athlete id) instead of every frame, since those decisions
+rarely change frame to frame; only the look target and weight need per-frame updates.
+
+## 2026-11-26 — perf-06: where the head look's cost goes, and a camera-distance cutoff (#245)
+
+Same machine and mode as perf-05. **Attribution** (variants of `athlete_pose.gd` swapped into one tree,
+interleaved with the #244 baseline, 3 rounds, scene_frame p50 medians in µs, CPU load 18%): baseline 998;
+`player.gd` target/weight update only 978; the two bone writes only (no math) 1002; the look math only
+(no bone writes) 1032; full look 1055. So the cost is the GDScript math in `_look()` (several `Basis`
+builds and two inverses per athlete), not the bone writes; run-to-run noise is about ±50 µs, so the
+split is rough. **Fix:** heads only turn when the athlete is big enough on screen to see it
+(`player.gd` `head_visible()`: distance × tan(fov/2) < `LOOK_VIEW_SIZE` 16 yd, about 25 yd for the 65°
+follow camera), and views that don't look and have faded out skip the look entirely.
+
+| Tree (3 rounds interleaved, CPU load 48%) | scene_frame p50 | scene_frame p99 |
+|---|---|---|
+| #244 baseline | 958 (927–1013) | 2284 |
+| head look before the cutoff | 1031 (992–1040) | 2410 |
+| head look with the cutoff | 999 (993–1025) | 2550 |
+
+The cutoff cuts the look's cost from about +73 to +41 µs/frame. Not done: rewriting `_look()` to
+rotate in each bone's local frame (fewer `Basis` ops); worth it only if the remaining ~40 µs matters.
+
+## 2026-11-26 — perf-05: cost of procedural head look (#245)
+
+Machine: native Windows 11, RTX 3060 Ti, Godot 4.3 console exe, `./scripts/perf.sh` (headless bench, so CPU-side
+only), CPU load 19% at start. Three trees, interleaved, 3 rounds each; medians in µs.
+
+| Tree | scene_frame p50 | scene_frame p99 | sim_tick p50 |
+|---|---|---|---|
+| #244 carry pose only (baseline) | 953 (920–998) | 2436 | 120 |
+| #245 head look, first version | 1052 (1008–1076) | 2730 | 118 |
+| #245 after review fixes | 1050 (1040–1089) | 2713 | 118 |
+
+The head look costs about +100 µs/frame (+10%): the `AthletePose` modifier now runs for all 14 athletes
+(neck + head, a few `get_bone_global_pose` reads each) instead of only the carrier. The sim is unchanged.
+Render budget unchanged (no meshes, materials or shadow casters). What didn't help: the review fixes
+(cache the rig check instead of building `_bones.values()` per athlete per frame, and drop a per-call `[]`
+default in `_open_hand`) removed the per-frame allocations but made no measurable difference (1052 vs 1050,
+inside run-to-run noise of about 150 µs). Not measured: real-GPU frame time with a window.
+
 ## 2026-11-26 — coin-toss cutscene render cost (#129)
 The toss cutscene hides the 14 match athletes and shows 3 puppets (2 captains + ref) and a coin.
 `tests/render_budget.gd` counts on this WSL box, headless (GPU-independent):

@@ -115,7 +115,9 @@ func think(world, human_ids: Array) -> Dictionary:
 		exchange = false
 	var loose: bool = world.ball.state == world.ball.State.LOOSE
 	var in_air: bool = c == null and world.ball.state == world.ball.State.IN_FLIGHT and world.forward_pass_thrown
-	var pass_phase: bool = c != null and c.team == world.offense_team and c.role == Athlete.Role.QB and c.position.y <= world.los_y and not world.forward_pass_thrown and (not run_call or exchange)
+	var pass_phase: bool = c != null and c.team == world.offense_team and c.role == Athlete.Role.QB \
+		and c.position.y <= world.los_y and not world.forward_pass_thrown and (world.is_chaos() or not world.ball_crossed_los) \
+		and (not run_call or exchange)
 	var landing := _landing_point(world) if in_air else Vector2.INF
 	if world.kick_live:
 		return _kick_coverage(world, human_ids, landing)
@@ -199,7 +201,22 @@ func think(world, human_ids: Array) -> Dictionary:
 				out[a.id] = _protect(world, a, c)
 		elif defense_enabled and in_air:
 			out[a.id] = _cover(world, a, null)
+	_respect_blocking_zone(world, out)
 	return out
+
+## #253: bot linemen never drift past the blocking zone before a pass or run. Within
+## AI_BLOCK_ZONE_MARGIN of its edge they stop moving downfield (and step back if past it).
+func _respect_blocking_zone(world, out: Dictionary) -> void:
+	if not world.blocking_zone_active():
+		return
+	var edge: float = world.los_y + T.BLOCK_ZONE_DEPTH - T.AI_BLOCK_ZONE_MARGIN
+	for id in out:
+		var a = world.get_athlete(id)
+		if a.team != world.offense_team or world.is_eligible_receiver(a) or a.position.y < edge:
+			continue
+		var dir: Vector2 = out[id].get("dir", Vector2.ZERO)
+		out[id]["dir"] = Vector2(dir.x, minf(dir.y, -0.5 if a.position.y > edge + 0.5 else 0.0))
+		out[id]["sprint"] = false
 
 ## Steering that arrives at p without overshooting (sprinting overshoots ~2 yd).
 func _arrive(a, p: Vector2) -> Dictionary:

@@ -20,7 +20,9 @@ step() {
   local name=$1; shift
   echo "== $name"
   if "$@" > "${TMPDIR:-/tmp}/fl-check-$$-$name.log" 2>&1; then
-    echo "   ok ($name)"; rm -f "${TMPDIR:-/tmp}/fl-check-$$-$name.log"
+    echo "   ok ($name)"
+    grep -h "SIZE WARN" "${TMPDIR:-/tmp}/fl-check-$$-$name.log" | sed 's/^/   /'   # warnings survive a pass
+    rm -f "${TMPDIR:-/tmp}/fl-check-$$-$name.log"
   else
     tail -25 "${TMPDIR:-/tmp}/fl-check-$$-$name.log"; echo "CHECK FAIL: $name (full log: ${TMPDIR:-/tmp}/fl-check-$$-$name.log)"; exit 1
   fi

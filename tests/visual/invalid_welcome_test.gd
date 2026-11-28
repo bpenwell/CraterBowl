@@ -12,19 +12,20 @@ func _run() -> void:
 	current_scene = game
 	game._ensure_net()
 	game.net.mode = NetSession.Mode.CLIENT
+	var v: int = game.net.protocol_version   # #224: the client refuses a welcome without the host's v
 	var assignments: Array[int] = []
 	game.net.welcomed.connect(func(aid: int): assignments.append(aid))
-	game.net._on_packet(1, var_to_bytes({"k": "welcome", "aid": 1}))
+	game.net._on_packet(1, var_to_bytes({"k": "welcome", "aid": 1, "v": v}))
 	check(assignments == [1] and game.net.host_size == 7 and game.net.host_mode == "classic",
 		"legacy welcome uses classic 7v7 defaults")
 	for fields in [{"aid": []}, {"aid": -1}, {"aid": 6}, {"size": true}, {"mode": 5}]:
-		var packet := {"k": "welcome", "aid": 2, "size": 3, "mode": "chaosball"}
+		var packet := {"k": "welcome", "aid": 2, "size": 3, "mode": "chaosball", "v": v}
 		packet.merge(fields, true)
 		game.net._on_packet(1, var_to_bytes(packet))
 	check(assignments == [1] and game.net.my_athlete == 1
 		and game.net.host_size == 7 and game.net.host_mode == "classic",
 		"malformed welcomes leave the prior assignment and configuration intact")
-	game.net._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "chaosball"}))
+	game.net._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "chaosball", "v": v}))
 	check(assignments == [1, 2] and game.net.my_athlete == 2
 		and game.net.host_size == 3 and game.net.host_mode == "chaosball",
 		"next valid welcome can change the assignment")

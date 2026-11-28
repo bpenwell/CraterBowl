@@ -55,6 +55,19 @@ static func cylinder(radius: float, height: float) -> CylinderMesh:
 		_meshes[k] = m
 	return _meshes[k]
 
+## Tapered cylinder (top and bottom radius differ): the kickoff tee (#68).
+static func cone(top: float, bottom: float, height: float) -> CylinderMesh:
+	var k := "cone:%.3f:%.3f:%.3f" % [top, bottom, height]
+	if not _meshes.has(k):
+		var m := CylinderMesh.new()
+		m.top_radius = top
+		m.bottom_radius = bottom
+		m.height = height
+		m.radial_segments = SEGMENTS
+		m.rings = 1
+		_meshes[k] = m
+	return _meshes[k]
+
 static func box(size: Vector3) -> BoxMesh:
 	var k := "box:%s" % size
 	if not _meshes.has(k):

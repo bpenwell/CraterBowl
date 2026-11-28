@@ -3,6 +3,7 @@ extends RefCounted
 ## apply() that pushes video/audio values into the engine. Tests pass a temp path.
 
 const Controls := preload("res://src/ui/controls.gd")
+const CameraZoom := preload("res://src/game/camera_zoom.gd")
 
 const DEFAULT_PATH := "user://settings.cfg"
 const DEFAULT_MM := "127.0.0.1:24600"   # matchmaker; point at the hosted one once deployed
@@ -25,6 +26,7 @@ var home_mode := ""              # last mode picked on the home screen's PLAY se
 var matchmaker := DEFAULT_MM     # host[:port]
 var upnp := true                 # try to open the port on the router when hosting
 var bindings := {}               # action -> keycode overrides (see controls.gd)
+var camera_zoom := CameraZoom.DEFAULT   # mouse-wheel follow-camera zoom (#140), MIN..MAX
 
 func load_file(path: String = DEFAULT_PATH) -> void:
 	var cf := ConfigFile.new()
@@ -48,6 +50,7 @@ func load_file(path: String = DEFAULT_PATH) -> void:
 	if matchmaker == "":
 		matchmaker = DEFAULT_MM
 	upnp = bool(cf.get_value("online", "upnp", upnp))
+	camera_zoom = CameraZoom.clamp_zoom(float(cf.get_value("camera", "zoom", camera_zoom)))
 	var b = cf.get_value("controls", "bindings", {})
 	bindings = b if b is Dictionary else {}
 	# Files without a version predate #138's Gridiron key layout.
@@ -65,6 +68,7 @@ func save(path: String = DEFAULT_PATH) -> bool:
 	cf.set_value("player", "home_mode", home_mode)
 	cf.set_value("online", "matchmaker", matchmaker)
 	cf.set_value("online", "upnp", upnp)
+	cf.set_value("camera", "zoom", camera_zoom)
 	cf.set_value("controls", "bindings", bindings)
 	cf.set_value("controls", "bindings_version", Controls.BINDINGS_VERSION)
 	return cf.save(path) == OK

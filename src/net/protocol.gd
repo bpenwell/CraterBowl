@@ -3,6 +3,7 @@ extends RefCounted
 
 const T := preload("res://src/sim/tuning.gd")
 const Routes := preload("res://src/sim/routes.gd")
+const World := preload("res://src/sim/world.gd")
 const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
 const DIVE_FLAG := 1
 const GROUND_FLAG := 2
@@ -10,6 +11,9 @@ const LOCK_FLAG := 4
 const BLOCK_FLAG := 8
 const SPIN_FLAG := 16
 const SPIN_LEFT_FLAG := 32   # spin turned left (visual side)
+const PASS_THROWN_FLAG := 1   # pass flags, separate from athlete flags
+const CROSSED_LOS_FLAG := 2
+const JUMP_SHIFT := 8          # flags bits 8+: jump time left in ms (0 = on the ground, #379)
 const Emotes := preload("res://src/sim/emotes.gd")
 
 static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
@@ -23,11 +27,13 @@ static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
 		flags |= (BLOCK_FLAG if ath.blocking else 0) | (SPIN_FLAG if ath.is_spinning() else 0)
 		if ath.is_spinning() and ath.spin_dir < 0:
 			flags |= SPIN_LEFT_FLAG
+		flags |= roundi(ath.jump_t * 1000.0) << JUMP_SHIFT
 		r.append_array([ath.role, flags, ath.team])
 		moves.append_array([ath.move_charge, ath.move_t])
 	var b = w.ball
+	var pass_flags := (PASS_THROWN_FLAG if w.forward_pass_thrown else 0) | (CROSSED_LOS_FLAG if w.ball_crossed_los else 0)
 	var snap := {
-		"k": "snap", "t": tick, "ph": w.phase, "off": w.offense_team, "los": w.los_y, "fpt": w.forward_pass_thrown, "pt": w.last_possession,
+		"k": "snap", "t": tick, "ph": w.phase, "off": w.offense_team, "los": w.los_y, "pf": pass_flags, "pt": w.last_possession,
 		"a": a, "r": r, "moves": moves,
 		"b": PackedFloat32Array([b.state, b.holder_id, b.position.x, b.position.y, b.position.z, b.velocity.x, b.velocity.y, b.velocity.z]),
 		"d": PackedFloat32Array([m.downs.offense_team, m.downs.down, m.downs.los, m.downs.first_down_y]),
@@ -58,7 +64,10 @@ static func valid_snapshot(s: Dictionary, athletes: int) -> bool:
 			return false
 	if s["ph"] not in [0, 1, 2] or s["off"] not in [0, 1] or s["ms"] not in [0, 1, 2, 3]:
 		return false
-	if not _finite_number(s.get("los")) or not (s.get("fpt") is bool):
+	var pass_flags = s.get("pf")
+	if not _finite_number(s.get("los")) or not (pass_flags is int):
+		return false
+	if pass_flags & ~(PASS_THROWN_FLAG | CROSSED_LOS_FLAG):
 		return false
 	if not _float_fields(s.get("a"), athletes * 7) or not _float_fields(s.get("b"), 8):
 		return false
@@ -123,7 +132,9 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 	w.phase = s["ph"]
 	w.offense_team = s["off"]
 	w.los_y = s["los"]
-	w.forward_pass_thrown = s["fpt"]
+	var pass_flags: int = s["pf"]
+	w.forward_pass_thrown = (pass_flags & PASS_THROWN_FLAG) != 0
+	w.ball_crossed_los = (pass_flags & CROSSED_LOS_FLAG) != 0
 	w.last_possession = s.get("pt", w.offense_team)
 	var a: PackedFloat32Array = s["a"]
 	var r: PackedInt32Array = s["r"]
@@ -146,6 +157,7 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 			ath.move_charge = moves[i * 2]
 			ath.move_t = moves[i * 2 + 1]
 		ath.spin_dir = -1 if flags & SPIN_LEFT_FLAG else 1
+		ath.jump_t = minf(float(flags >> JUMP_SHIFT) / 1000.0, T.JUMP_TIME)
 	var b: PackedFloat32Array = s["b"]
 	w.ball.state = int(b[0])
 	w.ball.holder_id = int(b[1])
@@ -266,6 +278,9 @@ static func sanitize_action(act) -> Dictionary:
 		"play":
 			var p = act.get("p", "")
 			return {"a": "play", "p": p} if p is String and (Routes.PLAYBOOK.has(p) or Routes.RUN_PLAYS.has(p)) else {}
+		"formation":
+			var f = act.get("f")
+			return {"a": "formation", "f": f} if World.valid_formation(f) else {}
 		"defense":
 			var id = act.get("p", "")
 			return {"a": "defense", "p": id} if id is String and DefensivePlaybook.CALLS.has(id) else {}
@@ -288,8 +303,11 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 		"snap":
 			# One key, routed by side: offense hikes, defense breaks stance, and a
 			# returner under a punt/kickoff in the air signals a fair catch (#189).
+			# In live play everyone else jumps (#379).
 			if w.can_signal_fair_catch(athlete_id):
 				return w.signal_fair_catch(athlete_id)
+			if w.phase == w.Phase.LIVE:
+				return w.jump(athlete_id)
 			if ath.team == w.offense_team:
 				return w.snap()
 			return w.break_stance(athlete_id)
@@ -319,6 +337,8 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 			return m.choose_toss(ath.team, act["c"])
 		"play":
 			return ath.team == w.offense_team and w.phase == w.Phase.PRESNAP and w.call_play(act["p"])
+		"formation":
+			return w.choose_formation(ath, act["f"])
 		"recall_call":
 			return w.recall_call(ath.team)
 		"flip_play":
@@ -333,7 +353,7 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 ## Wire/sim compatibility version. Bump it in the same PR as any change to the wire format
 ## (message keys or fields, snapshot layout, action shapes) or to sim rules a host and client
 ## must agree on (src/sim). Rule and reasons: docs/design/netcode.md "Version handshake".
-const VERSION := 2
+const VERSION := 12
 const VERSION_FILE := "res://VERSION"
 const VERSION_FLAG := "--protocol-version="   # debug: pretend to be another version (net_test.sh)
 
@@ -363,3 +383,14 @@ static func version_refusal(theirs, ours: int = local_version()) -> String:
 	if theirs < ours:
 		return "Update Crater Bowl to play online (server is v%d, you have v%d)" % [ours, theirs]
 	return "This server runs an older Crater Bowl (server is v%d, you have v%d)" % [ours, theirs]
+
+## Client side of the same check (#224): why we (`ours`) can't play on a host whose `welcome`
+## announced `theirs`; "" = compatible. No int `v` means a host from before the handshake.
+static func host_version_refusal(theirs, ours: int = local_version()) -> String:
+	if theirs is int and theirs == ours:
+		return ""
+	if not (theirs is int):
+		return "This server runs an older Crater Bowl (server is an older build, you have v%d)" % ours
+	if theirs < ours:
+		return "This server runs an older Crater Bowl (server is v%d, you have v%d)" % [theirs, ours]
+	return "Update Crater Bowl to play online (server is v%d, you have v%d)" % [theirs, ours]

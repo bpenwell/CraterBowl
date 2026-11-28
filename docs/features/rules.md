@@ -29,9 +29,14 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   while in contact with an opponent (within 1.0 yd, window held 0.3 s after contact breaks), but only
   as far as opposing bodies actually pushed him back. Driven back = credited; retreating on your own
   (a QB drifting back with a rusher on him) = spotted where you are. The dead carrier is moved to the
-  spot, and the overlay shows "FORWARD PROGRESS +N YD" when it gives back 0.5 yd or more. Out of
-  bounds and touchdowns are unchanged. Numbers: `CONTACT_REACH`, `FORWARD_PROGRESS_GRACE`,
-  `FORWARD_PROGRESS_BANNER` in `src/sim/tuning.gd`.
+  spot, and the overlay shows "FORWARD PROGRESS +N YD" when it gives back 0.5 yd or more. Touchdowns
+  are unchanged. Numbers: `CONTACT_REACH`, `FORWARD_PROGRESS_GRACE`, `FORWARD_PROGRESS_BANNER` in
+  `src/sim/tuning.gd`.
+- **Driven out of bounds** (#103): the same forward-progress rule applies when the carrier goes out of
+  bounds while the contact window is open. The spot moves forward to his forward progress, x stays where he
+  crossed the sideline, and the same banner shows. Stepping out untouched, or after the window has closed
+  (contact broke more than 0.3 s before), is spotted where he crossed. A carrier met in the field of play and
+  driven back through his own end zone and out is spotted at his forward progress, so it's not a safety.
 - Four downs; failing on 4th is a turnover on downs, new offense at the mirrored spot (`goal − spot`).
 - **Deep QB dropbacks** (#252): the ball-carrying offense QB has full movement speed up to 14 yards behind the
   line of scrimmage. Speed tapers to 65% at 20 yards and stays there at greater depths. Climbing back toward the line
@@ -45,6 +50,40 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   balls, the coin toss (its own `TOSS_WINDOW`) and its cutscene's fade back (`TOSS_OUTRO`, #129), FINAL. A timeout or the one-minute warning restarts it (a fresh huddle
   for bots). Clients show the same value: it is computed by `Match.play_clock_shown()` from snapshot state only.
 - Next play starts `NEXT_PLAY_DELAY` (2.0 s) after the whistle; Enter skips the wait (offline or host only; it was R before #138).
+
+### Penalties (`src/sim/penalties.gd`)
+- **Flag pipeline** (#253): a foul is recorded during the down as one record (`Penalties.make`: type, team, side,
+  spot, yards, replay or loss of down, player). `World.throw_flag` stores it in `World.flags` and emits `"flag"`;
+  the HUD shows **FLAG** at once and the play goes on. At the dead ball `Match.next_play` sends the first flag
+  through `Penalties.enforce`, the one enforcement path, and emits `"penalty"` with the ruling line.
+- **The defense keeps a better result** (`Penalties.defense_declines`): an interception or lost fumble (including a
+  return touchdown), a safety, a failed try or a turnover on downs stands, and the flag is declined. Otherwise the
+  penalty is enforced and the play's result is wiped, touchdowns included.
+- **Distance penalties:** yardage is measured from the previous spot (the line of scrimmage). An offensive foul moves the
+  ball back, a defensive one forward. When the yardage is more than half the distance to the goal line it's walking
+  toward, the ball goes **half the distance** instead. Spots clamp to the 1 like every other spot. The down is replayed
+  (or spent, for loss-of-down fouls) with the line to gain unchanged; a 2-point try is replayed from further back. The
+  clock stops.
+- **HUD:** a yellow line above the scorebug shows the flag (`FLAG · ILLEGAL MAN DOWNFIELD · OFFENSE`) and then the
+  ruling (`… · 10 YD · REPLAY 2ND DOWN`, `… · 6 YD, HALF THE DISTANCE · …`, or `… · DECLINED`) until the next snap.
+- **Illegal man downfield** (blocking zone, #253): at a forward pass, an offensive **C or OL** more than
+  `BLOCK_ZONE_DEPTH` (5 yd) past the line costs `BLOCK_ZONE_PENALTY_YARDS` (10 yd), replay the down. Exactly 5 yd is
+  legal. QB, RB and WR are eligible and may be anywhere. These are the same roles the catch resolver excludes
+  (`World.is_eligible_receiver`), so 3v3, which has no linemen, never draws the flag.
+  - Only the throw moment counts. A lineman who releases downfield after the ball is out is legal; one who crossed
+    before it is not.
+  - A pass landing at or behind the line (a screen) is exempt.
+  - The zone lifts once the ball has been carried past the line (a run). This also ends
+    [passing eligibility](offense.md#passing) for the down (#312). A handoff behind the line keeps the zone active,
+    so a halfback pass with a lineman downfield is still a foul. Kick plays, Chaosball and free practice have no zone.
+  - Bot linemen respect the zone ([line-play.md](line-play.md#blocking-zone-253)).
+- **Intentional grounding (#254):** on a Classic scrimmage throw, an active, unengaged defender within 2.5 yd of
+  the passer forces a throw toward an eligible teammate. The teammate's current position or its projection to the
+  catch point must be within 5 yd of that point. Grounding spends the down at the release spot, clamped to the 1.
+  On fourth down the defense gets the better turnover spot. Chaosball, free practice and called kick plays use their
+  existing rules.
+- Offsides and false starts stay impossible by construction (the pre-snap neutral-zone clamp); that's the documented
+  default on #7.
 
 ### Scoring and tries
 | Event | Points | Then |
@@ -117,6 +156,11 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - Forward progress is the furthest point in contact, capped by how far opponents pushed the carrier. Whistling on
   first contact was rejected because it kills the contact game (spins, breaking a lean, the dive). The uncapped
   furthest point was rejected because a QB drifting back with a rusher on him would get the yards back on a sack.
+- Out of bounds uses the tackle's forward-progress rule as is (#103): same contact window, same push cap, same
+  numbers. Otherwise the defense gets a free shove-out: a carrier driven back three yards and out loses those yards,
+  and the same hit followed by a dive keeps them. Rejected: spotting at the furthest in-bounds point whether or not
+  he was touched (credits a carrier who backpedals out on his own), and a separate out-of-bounds window (a second
+  rule to tune that could disagree with tackles).
 - The dropback taper follows depth in offense-frame yards so both offenses have the same window to move in the pocket.
   A smooth ramp avoids a sudden speed change when crossing a yard line. The 65% floor gives the rush a closing advantage
   while keeping enough control to move sideways and climb back toward the line. Host and client derive the scale from
@@ -134,6 +178,22 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   length (the old halves marker) falls back to 2:30, a pre-quarters snapshot's half maps to Q1/Q3, and an old
   lobby's `"quarters": false` reads as quarters. 2.5 min was added to the quarter lengths so the default game keeps
   its 10 minutes; 2 (8 min) or 3 (12 min) would have changed pacing.
+- **Grounding is judged at release (#254).** Use the actual throw trajectory in both aim modes and give moving
+  receivers credit for their projected run. The passer learns about the foul immediately even if receivers later
+  change direction. Grounding takes priority if the same throw also has an ineligible lineman downfield.
+- **Penalties (#253).** The flag is thrown at the release and the play goes on; the penalty is enforced at the dead ball.
+  Rejected: blowing the play dead at the throw (the defense loses its interception, and a ball dying in the air reads
+  as a bug), and checking the zone every frame (it would flag legal run plays, where blocking downfield is the point).
+  The defense's choice is automatic (it keeps a takeaway, safety, failed try or turnover on downs) because an
+  accept/decline prompt would stall an arcade game. The HUD says DECLINED so nobody wonders where the flag went.
+- A "blocker" is a C/OL by **position**, whether or not he's engaged. The issue says "a blocker more than 5 yards
+  downfield", and position is what a player can see and control; whether he's engaged in a block flickers frame to
+  frame. Eligibility matches the catch resolver (owner, #253).
+- Flags and rulings travel on the existing reliable event channel (`"flag"` world event, `"penalty"` match event), so the
+  snapshot (about 2 bytes under its MTU budget, #193) didn't grow. New event names changed the wire, so
+  `Protocol.VERSION` went 3 → 4.
+- Half the distance follows the real rule. Spots still clamp to the 1 (the downs engine never spots inside it), so a foul
+  on the 2 walks back to the 1 and one on the 1 doesn't move.
 - The bots' end-of-half prevent defense (Deep Zone) keys off the time left in the **half**
   (`Clock.half_remaining()`), so it still comes at the end of Q2/Q4, not at the end of every quarter.
 - The rear strip is near-certain so fumbles stay readable: don't sprint with a defender closing from behind.
@@ -145,13 +205,18 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - `src/sim/match.gd` — series flow: scoring, tries, kickoffs, turnovers, safeties, halves, timeouts.
 - `src/sim/downs.gd` — downs, line to gain, spot clamping, down & distance label.
 - `src/sim/clock.gd` — game/play clock, quarters (Q1-Q4 only), one-minute warning, timeout counts.
-- `src/sim/world.gd` — whistles (tackle, out of bounds, touchdown), catches/interceptions, fumbles and loose balls.
+- `src/sim/world.gd` — whistles (tackle, out of bounds, touchdown), catches/interceptions, fumbles and loose balls,
+  the blocking zone (`blocking_zone_active`, `_check_blocking_zone`, `throw_flag`).
+- `src/sim/penalties.gd` — flag records, `enforce` (the one enforcement path), the defense's option, ruling text.
 - `src/sim/match_config.gd`, `src/sim/roster.gd`, `src/sim/field.gd` — sizes, slots, field geometry.
 - `src/net/lobby.gd` (size and quarter-length settings), `src/net/protocol.gd` (period snapshots and host-validated `try`/`timeout` actions).
 - Tests: `tests/test_downs.gd`, `tests/test_scoring.gd`, `tests/test_match.gd`, `tests/test_clock.gd`,
   `tests/test_turnovers.gd`, `tests/test_tackling.gd`, `tests/test_match_sizes.gd`, `tests/test_field.gd`, `tests/test_switch_ends.gd`, `tests/game_flow.gd`,
   `tests/test_lobby.gd`, `tests/test_protocol.gd`, `tests/test_play_clock.gd`, `tests/visual/switch_ends_test.gd`,
   `tests/visual/play_clock_test.gd`, `tests/visual/quarter_clock_test.gd` (scorebug, Tab board and stadium screens at Q1 2:30).
+- `tests/test_penalties.gd` (flag, boundaries, eligibility, run/screen exemptions, enforcement, half the distance,
+  declines, bot zone discipline), the `tests/game_flow.gd` blocking-zone step (frames 16400-16620) and
+  `tests/visual/penalty_flag_test.gd` (the HUD ruling) cover penalties (#253).
 - `tests/test_qb_dropback.gd`, `tests/visual/qb_dropback_test.gd` cover authoritative and predicted speed plus keyboard-driven dropbacks.
 
 ## Open issues
@@ -159,9 +224,9 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - #90 Host mercy rule (28-point lead)
 - #91 Spike and kneel clock actions
 - #7 C05 Competitive rules: eligibility, grounding, blocking zone, QB slowdown
-- #253 Blocking zone and penalty flags
-- #254 Intentional grounding under pressure
-- #8 C06 Spotting: forward progress, return yards, fumble variety
+- #253 Blocking zone and penalty flags (in review)
+
+- #8 C06 Spotting: forward progress, return yards, fumble variety (#103 out-of-bounds forward progress in review)
 - #16 B10 Overtime for tied games
 - #39 B08 Tuning data file editable without code
 - #40 C25 Momentum / "on fire"

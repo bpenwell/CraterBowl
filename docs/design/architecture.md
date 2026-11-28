@@ -64,15 +64,18 @@ or `MMClient` child. Key functions:
 
 ## Tick model
 
-- **Sim: fixed 60 Hz.** `project.godot` doesn't set `physics/common/physics_ticks_per_second`, so the
-  Godot default (60) applies; sim runs only in `_physics_process(delta)`. Tests force it with
-  `--fixed-fps 60`, and `test_determinism.gd` steps `dt = 1/60`.
+- **Sim: fixed 60 Hz.** The rate has one source: `src/sim/tick.gd` (`Tick.RATE`, `Tick.HZ`, `Tick.DT`).
+  `project.godot` sets `physics/common/physics_ticks_per_second` to the same value explicitly; sim runs only
+  in `_physics_process(delta)`. Tests force it with `--fixed-fps 60`, and `test_determinism.gd` steps `dt = 1/60`.
 - **Render: display rate.** `_render()` (per tick) calls `views.sync()` and `_place_ball` to record
   targets; `_render_frame()` (per frame, from `_process`) interpolates by
   `Engine.get_physics_interpolation_fraction()`. Big jumps snap (`PlayerNode.TELEPORT_DIST`).
 - **Net:** snapshots every 2 ticks (30 Hz); `Replay` captures every 2 ticks (30 Hz).
-- `60.0` is hard-coded separately in `interpolator.gd` (`TICK_RATE`), `replay.gd` (`FRAME_EVERY`/`FPS`)
-  and `main.gd` (`SNAPSHOT_EVERY` comment). Changing the physics rate means changing all of them.
+- Tick <-> seconds conversions derive from `Tick`: `interpolator.gd` `TICK_RATE`, `replay.gd` `FPS`
+  (`Tick.HZ / FRAME_EVERY`) and `SLOWMO_TAIL`, `world.gd` ball look-ahead and impact-roll tick, `player.gd` timers.
+  `tests/test_tick.gd` fails if `project.godot`, the engine or those sites diverge from `Tick.RATE` (#61).
+  Changing the rate means editing `tick.gd` and `project.godot` together (the test enforces it); test
+  harnesses still hard-code `1/60` and `--fixed-fps 60` (#301).
 
 ## Determinism
 
@@ -140,5 +143,5 @@ trustworthy yet (#28).
 - #45 C30 Netcode feel II
 - #17 C11 Reconnect, leavers, forfeit
 - #1 Migrate backlog to GitHub issues; restructure docs into feature/design levels
-- #61 Tick rate (60 Hz) hard-coded in several places
+- #301 Test harnesses and scripts hard-code the 60 Hz tick
 - #66 Lint gate red on origin/main since ec09b1e (seeded RNG in world.gd vs the purity rule)

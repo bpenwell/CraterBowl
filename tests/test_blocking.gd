@@ -161,3 +161,74 @@ func test_bot_input_with_block_key_stays_bot() -> void:
 	assert_eq(dl.engaged_with, ol.id, "bot with a block key still auto-engages")
 	_run(w, {ol.id: {"dir": Vector2.ZERO, "sprint": false, "block": false}}, 0.05)
 	assert_eq(dl.engaged_with, ol.id, "bot with block=false is not released like a human")
+
+## Face to face: a blocker behind or beside a defender running the same way never locks
+## on (the pair used to slide downfield together with arms out); one ahead of his path does.
+func test_no_block_from_behind_or_running_alongside() -> void:
+	for case in [["behind", Vector2(40, 24.4), false], ["alongside", Vector2(40.9, 25.5), false], ["ahead", Vector2(40, 26.4), true]]:
+		var w := _setup([[0, Athlete.Role.OL, case[1]], [1, Athlete.Role.DL, Vector2(40, 25.5)]])
+		var ol: Athlete = w.athletes[2]
+		var dl: Athlete = w.athletes[3]
+		ol.facing = (dl.position - ol.position).normalized()   # the blocker always faces him
+		dl.velocity = Vector2(0, 6.0)   # the defender runs upfield
+		w._step_blocks(_prev(w), {}, DT)   # the engagement rule alone, no movement
+		assert_eq(dl.engaged_with >= 0, case[2], "%s: engaged %s" % [case[0], dl.engaged_with])
+
+func _prev(w) -> Array:
+	var out := []
+	for a in w.athletes:
+		out.append(a.position)
+	return out
+
+func test_blocks_end_before_out_of_bounds_whistle() -> void:
+	var w := _engage_setup()
+	var blocker: Athlete = w.athletes[2]
+	var defender: Athlete = w.athletes[3]
+	var blocker_start := blocker.position
+	var defender_start := defender.position
+	_run(w, {}, 0.4)
+	assert_eq(blocker.engaged_with, defender.id, "block was active")
+	assert_eq(defender.engaged_with, blocker.id, "defender was engaged")
+	w.event.connect(func(name, _data):
+		if name == "whistle":
+			assert_eq(blocker.engaged_with, -1, "blocker released before the whistle")
+			assert_eq(defender.engaged_with, -1, "defender released before the whistle")
+			assert_eq(defender.engage_t, 0.0, "elapsed hold cleared before the whistle")
+	)
+	var carrier := w.carrier()
+	assert_true(carrier != null, "QB has the snap")
+	if carrier == null:
+		return
+	carrier.position.x = -0.5
+	w.step({}, DT)
+	assert_eq(w.phase, World.Phase.DEAD, "carrier stepped out")
+	assert_true(events.has("whistle"), "whistle emitted")
+	assert_true(not events.has("shed"), "a dead ball doesn't award a shed")
+	_run(w, {}, 0.1)
+	assert_eq(blocker.engaged_with, -1, "no engagements form between plays")
+	w.setup_formation(25.0)
+	blocker.position = blocker_start
+	blocker.facing = Vector2.DOWN
+	defender.position = defender_start
+	w.snap()
+	w.step({}, DT)
+	assert_eq(blocker.engaged_with, defender.id, "the next live snap can form a block")
+
+func test_blocks_end_on_incomplete_pass() -> void:
+	var w := _engage_setup()
+	_run(w, {}, 0.4)
+	var blocker: Athlete = w.athletes[2]
+	var defender: Athlete = w.athletes[3]
+	assert_eq(blocker.engaged_with, defender.id, "block was active")
+	var carrier := w.carrier()
+	assert_true(carrier != null, "QB has the snap")
+	if carrier == null:
+		return
+	assert_true(w.throw(carrier.id, Vector2(12, 35), 0.5), "forward pass released")
+	w.ball.position.z = 0.01
+	w.ball.velocity.z = -1.0
+	w.step({}, DT)
+	assert_true(events.has("incomplete"), "pass hit the ground")
+	assert_eq(w.phase, World.Phase.DEAD, "incomplete pass ended the play")
+	assert_eq(blocker.engaged_with, -1, "blocker released on the incomplete")
+	assert_eq(defender.engaged_with, -1, "defender released on the incomplete")

@@ -30,7 +30,7 @@ Each run is one iteration. Each iteration builds on the last. **Tackle exactly o
    - **Noticed something else** (bug, gap, idea, wrong doc)? Open an issue now (`docs/workflow.md`), even if you fix it in this iteration.
 5. **Test.** Add `tests/test_<area>.gd` covering every acceptance criterion. The gate is **`./scripts/check.sh`** (lint + unit + perf + smoke, about 4 min); it must end `CHECK PASS`. It runs:
    - `./scripts/test.sh`: all unit tests must pass (previous iterations' tests included).
-   - `./scripts/smoke.sh`: main scene boots headless for ~300 frames with zero script errors, then `tests/game_flow.gd` drives the real scene through a scripted play. **Extend game_flow.gd with a step for each new player-facing feature.**
+   - `./scripts/smoke.sh`: main scene boots headless for ~300 frames with zero script errors, then `tests/game_flow.gd` drives the real scene through a scripted play. **Add a game_flow segment (`tests/flow/segments/<name>.gd`) for each new player-facing feature.**
    - `./scripts/mm_test.sh` (also run by smoke.sh): matchmaker + 2 queued clients → hosted match starts.
    - `./scripts/net_test.sh` (also run by smoke.sh): headless host + client over localhost. Extend `tests/net_client.gd` when a feature changes networked behavior.
    - `./scripts/shot.sh` for any visual change (art, HUD, camera, effects): renders the real scene offscreen (Xvfb + software GL) to PNGs. **View the PNGs before calling it done.** See `docs/TESTING.md`.

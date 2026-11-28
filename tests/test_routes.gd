@@ -65,6 +65,26 @@ func test_actions_authority() -> void:
 	w.snap()
 	assert_true(not P.apply_action(m, qb.id, {"a": "play", "p": "Slants"}), "no play call while live")
 
+func test_presnap_audible_replaces_the_replicated_call_and_locks_at_the_snap() -> void:
+	var host := _match()
+	var w := host.world
+	var qb := w.find_role(0, R.QB)
+	var receiver: Athlete = w.receivers_in_order()[0]
+	assert_true(P.apply_action(host, qb.id, {"a": "play", "p": "Slants"}))
+	assert_eq(w.route_of[receiver.id], "SLANT")
+	assert_true(P.apply_action(host, qb.id, {"a": "play", "p": "Flood"}))
+	assert_eq(w.route_of[receiver.id], "CORNER")
+
+	var client := _match()
+	P.apply_snapshot(client, bytes_to_var(var_to_bytes(P.encode_snapshot(host, 1))))
+	assert_eq(client.world.play_name, "Flood")
+	assert_eq(client.world.route_of, w.route_of, "teammate receives the new route assignments")
+
+	assert_true(w.snap())
+	assert_true(not P.apply_action(host, qb.id, {"a": "play", "p": "Slants"}), "live call rejected")
+	assert_eq(w.play_name, "Flood")
+	assert_eq(w.route_of[receiver.id], "CORNER")
+
 func test_snapshot_carries_routes() -> void:
 	var a := _match()
 	a.world.call_play("Flood")

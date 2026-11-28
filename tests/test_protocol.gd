@@ -31,6 +31,7 @@ func test_snapshot_round_trip() -> void:
 	a.score = [7, 3]
 	a.clock.remaining = 123.5
 	a.downs.down = 3
+	a.world.forward_pass_thrown = true
 	var snap := P.encode_snapshot(a, 42)
 	var bytes := var_to_bytes(snap)
 	var decoded = bytes_to_var(bytes)
@@ -45,6 +46,7 @@ func test_snapshot_round_trip() -> void:
 	assert_true(b.world.athletes[8].is_spinning(), "spin flag and timing")
 	assert_near(b.world.athletes[8].move_charge, 0.6, 0.001, "move charge")
 	assert_eq(b.world.phase, a.world.phase, "phase")
+	assert_true(b.world.forward_pass_thrown, "the forward-pass flag survives serialization")
 	assert_eq(b.world.ball.state, a.world.ball.state, "ball state")
 	assert_eq(b.world.ball.holder_id, a.world.ball.holder_id, "holder")
 	assert_true(b.world.ball.position.distance_to(a.world.ball.position) < 0.001, "ball pos")
@@ -52,6 +54,29 @@ func test_snapshot_round_trip() -> void:
 	assert_near(b.clock.remaining, 123.5, 0.01, "clock")
 	assert_eq(b.downs.down, 3, "down")
 	assert_true(bytes.size() < 1400, "fits one MTU-ish packet (%d bytes)" % bytes.size())
+
+func test_snapshot_carries_and_clears_the_crossing_flag() -> void:
+	var host := _match()
+	var remote := _match()
+	var qb := host.world.find_role(0, R.QB)
+	host.world.start_live_with(qb.id)
+	qb.position = Vector2(6.0, host.world.los_y + 2.0)
+	host.world.step({}, DT)
+	qb.position.y = host.world.los_y - 3.0
+	host.world.step({}, DT)
+	var snap = bytes_to_var(var_to_bytes(P.encode_snapshot(host, 1)))
+	assert_true(P.valid_snapshot(snap, remote.world.athletes.size()))
+	P.apply_snapshot(remote, snap)
+	assert_true(remote.world.ball_crossed_los and not remote.world.forward_pass_thrown)
+	assert_true(not remote.world.can_throw(qb.id), "remote agrees that the keeper cannot pass")
+	snap["pf"] = 4
+	assert_true(not P.valid_snapshot(snap, remote.world.athletes.size()), "unassigned pass bit rejected")
+
+	host.start(0, 36.0)
+	host.world.start_live_with(qb.id)
+	P.apply_snapshot(remote, P.encode_snapshot(host, 2))
+	assert_true(not remote.world.ball_crossed_los and remote.world.can_throw(qb.id),
+		"the next snap clears the client's crossing flag")
 
 ## #130: a pre-quarters host never makes a client show H1/H2.
 func test_legacy_snapshot_shows_quarters() -> void:

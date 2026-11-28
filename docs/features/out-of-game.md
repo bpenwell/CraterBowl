@@ -18,7 +18,7 @@ Feature-level doc: how this works **today** on `main`. The in-match game is in t
   - `start_game(opts)` stores options that `main._cli_args()` merges in. **A menu choice is the same thing as a CLI launch** (`{"host": true}` == `--host`), so every menu path runs code the test suite already covers.
   - Owns the in-match **Esc overlay** (resume / controls / leave match / quit). Offline play pauses; online play keeps running.
   - **Rebinding and gamepad** work as a translation layer: the player's key, or a gamepad button/stick/trigger, is re-injected as the default key that `main.gd` reads (`src/ui/controls.gd`). Match code never needs to know about bindings.
-- Settings live in `user://settings.cfg` (`src/ui/settings_store.gd`): name, fullscreen, vsync, 3D resolution, frame cap, master volume, matchmaker address, UPnP, key bindings. Headless runs ignore the player's file.
+- Settings live in `user://settings.cfg` (`src/ui/settings_store.gd`): name, fullscreen, vsync, 3D resolution, frame cap, master volume, matchmaker address, UPnP, key bindings, camera zoom (set in-match with the mouse wheel, #140). Headless runs ignore the player's file.
 
 ## Menu map
 | Screen | What it does |

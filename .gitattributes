@@ -1,0 +1,2 @@
+# Append-only logs: keep both sides when two branches add an entry at the same spot.
+docs/optimization/LOG.md merge=union

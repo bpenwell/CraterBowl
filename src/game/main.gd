@@ -11,7 +11,7 @@ const Match := preload("res://src/sim/match.gd")
 const NEXT_PLAY_DELAY := 2.0
 const NetSession := preload("res://src/net/net_session.gd")
 const Protocol := preload("res://src/net/protocol.gd")
-const SNAPSHOT_EVERY := 2   # physics ticks (60 Hz -> 30 Hz snapshots)
+const SNAPSHOT_EVERY := 2   # physics ticks (Tick.RATE 60 Hz -> 30 Hz snapshots); clients convert via Interp.TICK_RATE
 const REMOTE_IDLE_INPUT := {World.HUMAN: true}
 const Predictor := preload("res://src/net/client_predictor.gd")
 const Interp := preload("res://src/net/interpolator.gd")
@@ -44,6 +44,7 @@ const StadiumArt := preload("res://src/game/art/stadium.gd")
 const ArtMats := preload("res://src/game/art/materials.gd")
 const ArtQuality := preload("res://src/game/art/quality.gd")
 const TauntWheel := preload("res://src/game/taunt_wheel.gd")
+const CameraZoom := preload("res://src/game/camera_zoom.gd")
 const TrainingArt := preload("res://src/game/art/training_art.gd")
 const CoinToss := preload("res://src/game/coin_toss.gd")
 const ARC_DOTS := 24
@@ -64,7 +65,6 @@ var charge := 0.0       # 0..1 throw power (distance)
 # Render interpolation for the ball (views interpolate themselves; see player.gd).
 var _ball_prev := Vector3.ZERO
 var _ball_cur := Vector3.ZERO
-var _route_key := 0          # last drawn route-art state; rebuild only when it changes
 var aim_point := Vector2(26, 45)
 ## POV passing (Gridiron-style): while you're the passer the mouse is captured and
 ## steers your view. Throws go where you look; view pitch = launch angle (height),
@@ -81,8 +81,8 @@ const AIM_ZOOM_FOV := 45.0          # FOV at full charge
 const AIM_ZOOM_RATE := 8.0          # 1/s easing rate (frame-rate independent)
 ## Camera framing (#128). Offsets are (right, up, back) from the controlled player. The
 ## follow look is clamped (_framed_look) so the player's ring never drops below
-## FRAME_FEET_MAX of the screen height, whatever the offset, FOV or aim range; a future
-## camera zoom (#140) only has to scale FOLLOW_CAM_OFFSET.
+## FRAME_FEET_MAX of the screen height, whatever the offset, FOV or aim range, so the
+## mouse-wheel zoom (#140, camera_zoom.gd) only scales the follow offset.
 const FOLLOW_CAM_OFFSET := Vector3(0, 6, 9)
 const FOLLOW_CAM_OFFSET_BLOCKING := Vector3(0, 10, 13)   # blocking drill: both lines in view
 const POV_CAM_OFFSET := Vector3(0.9, 2.8, 5.4)           # over the passer's right shoulder
@@ -159,8 +159,15 @@ var dead_t := 0.0
 var auto_next := true
 var los_marker: MeshInstance3D
 var fd_marker: MeshInstance3D
-var route_lines: MeshInstance3D
-var route_mesh := ImmediateMesh.new()
+## Components (src/game/component.gd): behavior that lives in its own file. They read game
+## state through `ctx` and get main's per-tick, per-frame, configure and event hooks.
+const GameContext := preload("res://src/game/game_context.gd")
+const RouteArt := preload("res://src/game/components/route_art.gd")
+var ctx = GameContext.new(self)
+var components: Array = []
+var route_art: RouteArt
+var route_mesh: ImmediateMesh:   # tests read the route art's mesh
+	get: return route_art.mesh
 var input_override = null   # tests/bots: Vector2 replaces keyboard movement
 var sprint_override = null  # tests/bots: bool replaces the Shift key
 var net: NetSession
@@ -174,6 +181,12 @@ var cam_yaw := 0.0
 var camera_follow := Vector3.ZERO
 var camera_orbit := 0.0
 var aim_distance := 22.0
+## Mouse-wheel zoom (#140): cam_zoom is the target (persisted in settings), cam_zoom_shown
+## eases toward it. Scales the follow-camera boom only: POV aim, replays and cutscenes ignore it.
+var cam_zoom := CameraZoom.DEFAULT
+var cam_zoom_shown := CameraZoom.DEFAULT
+var _mid_drag := 0.0          # mouse travel while the middle button is held (click vs orbit-drag)
+const MID_CLICK_SLOP := 6.0   # px: a middle press that moves less than this is a click (reset zoom)
 var scoreboard_held := false
 var play_picker_open := true
 var hud: Label
@@ -181,6 +194,13 @@ var pres: Presentation   # visuals-only layer (ball model, rings, FX, overlay)
 
 static func to_world(p: Vector2, h: float = 0.0) -> Vector3:
 	return Vector3(p.x, h, -p.y)
+
+## Register a component: it reads state through ctx and joins main's hook loops.
+func add_component(c: Node) -> Node:
+	c.ctx = ctx
+	add_child(c)
+	components.append(c)
+	return c
 
 func _ready() -> void:
 	pres = Presentation.new()
@@ -225,24 +245,17 @@ func _ready() -> void:
 	_setup_net()
 	if args.has("replay"):
 		open_replay(str(args["replay"]))
-	route_lines = MeshInstance3D.new()
-	route_lines.name = "RouteLines"
-	route_lines.mesh = route_mesh
-	var rlm := StandardMaterial3D.new()
-	rlm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	rlm.vertex_color_use_as_albedo = true
-	rlm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	rlm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	rlm.no_depth_test = false
-	route_lines.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	route_lines.material_override = rlm
-	add_child(route_lines)
+	route_art = add_component(RouteArt.new())
 	for v in views:
 		v.sync()
 	camera = Camera3D.new()
 	camera.name = "FollowCamera"
 	camera.fov = CAMERA_FOV
 	add_child(camera)
+	var zl := get_node_or_null("/root/Launch")
+	if zl != null:
+		cam_zoom = CameraZoom.clamp_zoom(zl.settings.camera_zoom)
+		cam_zoom_shown = cam_zoom
 	camera.make_current()
 	hud = Label.new()
 	hud.name = "HUD"
@@ -334,6 +347,8 @@ func configure(size: int, practice: String = "", mode: String = "classic") -> vo
 		_sync_looks()
 	for v in views:
 		v.sync()
+	for c in components:
+		c.on_configure()
 
 ## Host/offline: rebuild athlete looks (yours + peers'), apply to views, broadcast.
 func _sync_looks() -> void:
@@ -366,6 +381,7 @@ func _spawn_teams() -> void:
 		var v := PlayerNode.new()
 		v.name = "Athlete%d" % a.id
 		v.setup(a, TEAM_COLORS[a.team], world, a.team != local_team)
+		v.look_node = ball_view   # heads track the ball (#245)
 		athlete_root.add_child(v)
 		views.append(v)
 	controlled_id = my_id
@@ -433,6 +449,8 @@ func pov_active() -> bool:
 		return false
 	if world.phase == World.Phase.PRESNAP:
 		return true   # the center holds it; you're lining up the throw
+	if world.ball_crossed_los:
+		return false
 	var c = world.carrier()
 	return (c == null or c.id == controlled_id) and a.position.y <= world.los_y + 1.0
 
@@ -702,7 +720,9 @@ func _apply_award(xp: Dictionary, ctx: Dictionary = {}) -> void:
 	achievement_line = ("ACHIEVEMENTS: " + ", ".join(unlocked)) if not unlocked.is_empty() else ""
 
 func _on_match_event(n: String, data: Dictionary) -> void:
-	if n in ["timeout", "clock_warning"]:
+	for c in components:
+		c.on_match_event(n, data)
+	if n in ["timeout", "clock_warning", "penalty"]:   # #253: penalty rulings reach the HUD and clients
 		_on_world_event(n, data)
 	if n in ["quarter", "halftime"]:
 		ai.reset_presnap()
@@ -886,6 +906,11 @@ func _host_game(port: int, opts: Dictionary) -> String:
 	net.match_size = match_size
 	var err := net.host(port, func(peer): return roster.auto_assign(peer), func(peer): roster.release(peer))
 	print("NET host on %d: %s" % [port, error_string(err)])
+	if err != OK:   # #299: no lobby and no invite code for a port we don't hold
+		net.queue_free()
+		net = null
+		_host_failed.call_deferred(port)
+		return ""
 	if opts.get("no_lobby", false):
 		return ""
 	lobby = Lobby.new()
@@ -937,13 +962,27 @@ func _join_game(target: String, port: int, opts: Dictionary) -> void:
 			if auto_ready:
 				net.send_lobby_action({"a": "ready"}))
 	net.snapshot_received.connect(_on_snapshot)
-	net.event_received.connect(_on_world_event)
+	net.event_received.connect(func(n, data):
+		if n == "snap":
+			replay.context = "%s, %s" % [series.clock.label(), series.downs.label()]
+		replay.record_event(n, data)
+		_on_world_event(n, data))
 	net.host_lost.connect(_on_host_lost)
 	add_child(preload("res://src/game/link_banner.gd").new(net))   # #86: "Connection to host lost…"
 
 const HOST_LOST_STATUS := "Host disconnected"
 const HOST_UNREACHABLE_STATUS := "Couldn't reach the host"
 const MATCHMAKER_UNREACHABLE_STATUS := "Couldn't reach the matchmaker"
+const HOST_BIND_FAILED_STATUS := "Couldn't host on port %d. Is another game using it?"
+
+## #299: hosting couldn't bind its UDP port (another process holds it). A menu launch goes
+## back to the menu saying so; a CLI/headless host exits non-zero.
+func _host_failed(port: int) -> void:
+	var launch := get_node_or_null("/root/Launch")
+	if launch != null and launch.from_menu:
+		_show_connection_failure(HOST_BIND_FAILED_STATUS % port)
+	else:
+		get_tree().quit(1)
 
 func _show_connection_failure(status: String) -> void:
 	if not is_inside_tree() or get_tree().current_scene != self:
@@ -987,9 +1026,12 @@ func _queue_up(args: Dictionary) -> void:
 		var port := int(args.get("host-port", 25000 + randi() % 5000))
 		var code := _host_game(port, {"start_when_ready": true, "expected": int(m.get("expected", 2)),
 			"size": int(m.get("size", 7)), "advertise": advertise, "game": str(m.get("game", "classic"))})
+		if code == "":   # couldn't bind (#299); the waiting joiners are #303
+			return
 		lobby.settings["quarter_minutes"] = Lobby.DEFAULT_QUARTER_MINUTES
 		print("QUEUE matched (%s): hosting %s" % [m.get("mode", "?"), code])
 		mm_client.send_hosting(code))
+	mm_client.host_cancelled.connect(_retry_after_host_timeout.bind(args), CONNECT_DEFERRED)
 	mm_client.join_match.connect(func(code):
 		_end_warmup(args)
 		print("QUEUE matched: joining %s" % code)
@@ -1008,6 +1050,29 @@ func _queue_up(args: Dictionary) -> void:
 		return
 	mm_client.failed.connect(_show_connection_failure.bind(MATCHMAKER_UNREACHABLE_STATUS), CONNECT_DEFERRED)
 	mm_client.refused.connect(_show_connection_failure, CONNECT_DEFERRED)   # #165: version mismatch -> menu says why
+	_begin_queue_wait(args)
+
+## #308: abandon the empty game lobby while keeping the separate matchmaker connection.
+func _retry_after_host_timeout(args: Dictionary) -> void:
+	if not is_server() or not in_lobby():
+		return
+	net.peer.close()
+	net.queue_free()
+	net = null
+	lobby = Lobby.new()
+	pending_teams.clear()
+	pending_seats.clear()
+	peer_seats.clear()
+	peer_installs.clear()
+	ranked_match = false
+	if not mm_client.is_open():
+		_show_connection_failure(MATCHMAKER_UNREACHABLE_STATUS)
+		return
+	print("QUEUE host order timed out. Searching again.")
+	_begin_queue_wait(args)
+	mm_client.retry_as_solo()
+
+func _begin_queue_wait(args: Dictionary) -> void:
 	queue_started_ms = Time.get_ticks_msec()
 	# Waiting lobby: warm up on the training ground until the match is found.
 	if not args.has("no-warmup"):
@@ -1070,6 +1135,8 @@ func lobby_key(keycode: int) -> void:
 		KEY_7: changed = lobby.set_setting(LOCAL_PLAYER, "size", 7)
 		KEY_M:
 			changed = lobby.set_setting(LOCAL_PLAYER, "mode", "chaosball" if lobby.settings.get("mode", "classic") == "classic" else "classic")
+		KEY_I:
+			changed = lobby.set_setting(LOCAL_PLAYER, "pass_marker", not lobby.settings["pass_marker"])
 		KEY_H:
 			var choices := Lobby.QUARTER_MINUTES
 			var i := (choices.find(lobby.settings["quarter_minutes"]) + 1) % choices.size()
@@ -1173,6 +1240,8 @@ func _unhandled_input(e: InputEvent) -> void:
 		look(e.relative)   # passer: mouse X = direction, mouse Y = loft
 	elif e is InputEventMouseMotion and (mouse_captured()
 			or Input.is_mouse_button_pressed(MOUSE_BUTTON_MIDDLE)):
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_MIDDLE):
+			_mid_drag += e.relative.length()
 		camera_orbit = wrapf(camera_orbit - e.relative.x * 0.004, -PI, PI)
 		cam_yaw = _camera_target_yaw()
 		aim_distance = clampf(aim_distance - e.relative.y * 0.22, 2.0, 65.0)
@@ -1182,7 +1251,46 @@ func _unhandled_input(e: InputEvent) -> void:
 			_set_charging(e.pressed)   # hold = power (distance), release = throw
 		elif e.pressed:
 			throw_pass()
-	# The mouse wheel is unbound (#139 took it off taunts; #140 plans camera zoom).
+	elif e is InputEventMouseButton and e.pressed and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		var notches: float = e.factor if e.factor > 0.0 else 1.0   # trackpads send fractions
+		zoom_camera(notches if e.button_index == MOUSE_BUTTON_WHEEL_UP else -notches)
+	elif e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_MIDDLE:
+		if e.pressed:
+			_mid_drag = 0.0
+		elif _mid_drag < MID_CLICK_SLOP:
+			reset_camera_zoom()   # a middle click (not an orbit drag) resets the zoom
+
+## Wheel zoom (#140): + notches = wheel up = closer. Ignored (returns false) in the passer's
+## POV aim (the wheel must never move a throw), while the taunt wheel is open, in replays and
+## during the coin-toss cutscene (#129 poses the camera itself).
+func zoom_camera(notches: float) -> bool:
+	if not _zoom_input_ok():
+		return false
+	set_camera_zoom(CameraZoom.step(cam_zoom, notches))
+	return true
+
+func reset_camera_zoom() -> bool:
+	if not _zoom_input_ok():
+		return false
+	set_camera_zoom(CameraZoom.DEFAULT)
+	return true
+
+func _zoom_input_ok() -> bool:
+	return not (pov_active() or taunt_wheel.open or replay_active or in_lobby() or coin_toss != null)
+
+## Sets the target zoom (clamped) and saves it with the player's settings. Headless runs
+## save only to an explicit --settings-file, like Launch loads (tests never touch real saves).
+func set_camera_zoom(z: float) -> void:
+	z = CameraZoom.clamp_zoom(z)
+	if z == cam_zoom:
+		return
+	cam_zoom = z
+	var launch := get_node_or_null("/root/Launch")
+	if launch == null:
+		return
+	launch.settings.camera_zoom = cam_zoom
+	if DisplayServer.get_name() != "headless" or launch.settings_path != launch.SettingsStore.DEFAULT_PATH:
+		launch.settings.save(launch.settings_path)
 
 ## Tests set this: headless can't capture the mouse, so mouse-look would never run.
 var mouse_captured_override = null
@@ -1212,6 +1320,8 @@ func taunt(id: String) -> bool:
 func _on_world_event(n: String, d: Dictionary) -> void:
 	if pres:
 		pres.on_event(n, d)
+	for c in components:
+		c.on_world_event(n, d)
 	if n == "incomplete" and last_whistle == "":
 		last_whistle = "INCOMPLETE"
 	if n in ["tackle", "out_of_bounds", "breakup", "touchdown", "explode", "touchback", "kick_out_of_bounds", "kick_downed", "fair_catch"]:
@@ -1268,13 +1378,28 @@ func _marker(c: Color, n: String) -> MeshInstance3D:
 	field_root.add_child(mi)
 	return mi
 
-## Defense pre-snap HUD: stance state for the local athlete.
-func presnap_defense_prompt(a) -> String:
+## Defense pre-snap HUD: stance state for the local athlete. `roam_key` (from
+## roam_hint_key) adds the first-time "<key> ×2 TO ROAM" hint to a set defender (#183).
+static func presnap_defense_prompt(a, roam_key := "") -> String:
 	if a == null:
 		return "PRE-SNAP"
 	if a.role == Athlete.Role.DL:
 		return "PRE-SNAP (hold your stance)"
-	return "PRE-SNAP: SET" if a.set_lock else "PRE-SNAP: ROAMING"
+	if not a.set_lock:
+		return "PRE-SNAP: ROAMING"
+	return "PRE-SNAP: SET" if roam_key == "" else "PRE-SNAP: SET  ·  %s ×2 TO ROAM" % roam_key
+
+## #183: true once the player has broken stance this session (static: survives the
+## scene reload between matches, resets on relaunch; nothing is saved).
+static var roamed_once := false
+
+## The bound snap key's name while the local defender is set and hasn't roamed yet this
+## session, else "". Keyboard name only: pads aren't tracked yet (#309).
+func roam_hint_key() -> String:
+	if roamed_once or not world.can_break_stance(world.get_athlete(my_id)):
+		return ""
+	var launch := get_node_or_null("/root/Launch")
+	return Controls.key_name(Controls.key_for("snap", launch.settings.bindings if launch else {})).to_upper()
 
 func next_play() -> void:
 	series.next_play()
@@ -1328,7 +1453,8 @@ func _update_camera(delta: float) -> void:
 		camera_follow = target
 	camera_follow = camera_follow.lerp(target, 1.0 - exp(-10.0 * delta))
 	var offset := FOLLOW_CAM_OFFSET_BLOCKING if drill != null and drill.kind == "blocking" else FOLLOW_CAM_OFFSET
-	var follow_pos := camera_follow + rot * offset
+	cam_zoom_shown = CameraZoom.ease_toward(cam_zoom_shown, cam_zoom, delta)
+	var follow_pos := camera_follow + rot * offset * (1.0 if replay_active else cam_zoom_shown)   # replays: default framing
 	var follow_look := _framed_look(follow_pos, target + rot * Vector3(0, 0, -aim_distance), target, camera.fov)
 	if pov_w <= 0.0:
 		camera.global_position = follow_pos
@@ -1417,8 +1543,10 @@ func _unhandled_key_input(e: InputEvent) -> void:
 	match e.keycode:
 		KEY_SPACE:
 			# Offense snaps on one press. A set defender needs a double-tap to roam (#142).
-			if world.can_break_stance(world.get_athlete(controlled_id)) and not stance_tap.press(Time.get_ticks_msec() / 1000.0):
+			var breaking := world.can_break_stance(world.get_athlete(controlled_id))
+			if breaking and not stance_tap.press(Time.get_ticks_msec() / 1000.0):
 				return
+			roamed_once = roamed_once or breaking   # #183: the roam hint has done its job
 			do_action({"a": "snap"})
 		KEY_1:
 			do_action({"a": "toss", "c": "receive"} if series.state == Match.State.TOSS else {"a": "try", "n": 1})
@@ -1468,11 +1596,11 @@ func _physics_process(delta: float) -> void:
 		if not pov_active():
 			charging = false   # sacked / crossed the line: the wind-up is lost
 	var launch := get_node_or_null("/root/Launch")
-	var menu_open: bool = launch != null and launch.menu_open()
+	var local_input_blocked: bool = replay_active or (launch != null and launch.menu_open())
 	var my_input := {
-		"dir": Vector2.ZERO if menu_open else read_input(),
-		"sprint": not menu_open and (sprint_override if sprint_override != null else Input.is_key_pressed(KEY_SHIFT)),
-		"block": not menu_open and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT),
+		"dir": Vector2.ZERO if local_input_blocked else read_input(),
+		"sprint": not local_input_blocked and (sprint_override if sprint_override != null else Input.is_key_pressed(KEY_SHIFT)),
+		"block": not local_input_blocked and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT),
 		World.HUMAN: true,
 	}
 	if in_lobby():
@@ -1484,9 +1612,12 @@ func _physics_process(delta: float) -> void:
 		replay.advance(delta)
 		if replay.ended() and not replay_viewer and not replay.paused and not replay.next_in_reel():
 			stop_replay()
-		elif net != null and not is_client():
-			_step_authoritative(delta, my_input)   # host keeps the match running
+		elif is_server() and not replay_viewer:
+			_step_authoritative(delta, my_input)   # host keeps simulating and recording
 		_render_replay()
+		if replay_active and is_client() and not replay_viewer:
+			_apply_interpolation()
+			_record_replay()
 		return
 	if is_client():
 		# Predict own athlete now; server stays authoritative and reconciles via acks.
@@ -1498,10 +1629,14 @@ func _physics_process(delta: float) -> void:
 			if world.ball.is_held_by(my_id):
 				world.ball.position = Vector3(me.position.x, me.position.y, T.BALL_CARRY_HEIGHT)
 		_apply_interpolation()
+		_record_replay()
 	else:
 		_step_authoritative(delta, my_input)
-	replay.capture(world)
 	_render()
+
+## One replay tick, with the view's push / catch bits on frame ticks (#374).
+func _record_replay() -> void:
+	replay.capture(world, PlayerNode.replay_bits(world) if replay.frame_due() else PackedByteArray())
 
 func _step_authoritative(delta: float, my_input: Dictionary) -> void:
 	whistle_t = whistle_t + delta if world.phase == World.Phase.DEAD else 0.0
@@ -1553,6 +1688,7 @@ func _step_authoritative(delta: float, my_input: Dictionary) -> void:
 				inp[World.HUMAN] = true   # the host decides who is human, never the wire
 				inputs[aid] = inp
 	world.step(inputs, delta)
+	_record_replay()
 	if is_server():
 		net_tick += 1
 		if net_tick % SNAPSHOT_EVERY == 0:
@@ -1707,8 +1843,10 @@ func _render_replay() -> void:
 	if smp.is_empty():
 		return
 	var pos: Array = smp["pos"]
+	var flags: Array = smp["flags"]
 	for i in mini(pos.size(), views.size()):
 		views[i].place(Vector3(pos[i].x, 0, -pos[i].y), views[i].rotation.y)
+		views[i].replay_flags = flags[i]   # clips from the recording, not the live athlete
 	var b: Vector3 = smp["ball"]
 	_place_ball(Vector3(b.x, b.z, -b.y))
 
@@ -1722,7 +1860,8 @@ func _render() -> void:
 	los_marker.position = Vector3(field.width / 2.0, 0.03, -series.downs.los)
 	fd_marker.position = Vector3(field.width / 2.0, 0.03, -series.downs.first_down_y)
 	fd_marker.visible = not series.downs.is_goal_to_go()
-	_draw_routes()
+	for c in components:
+		c.on_render()
 
 ## True while the throw-arc preview is visible (tests).
 func arc_shown() -> bool:
@@ -1746,129 +1885,10 @@ func _render_frame() -> void:
 	_update_aim()
 	_update_arc()
 
-## Presnap route art for your own offense only (the defense never sees it):
-## flat glowing ribbons, a distinct color per receiver, arrowheads, start dots.
-const ROUTE_COLORS := [Color(1.0, 0.82, 0.25), Color(1.0, 0.45, 0.75), Color(0.55, 0.6, 1.0), Color(1.0, 0.55, 0.2), Color(0.75, 0.5, 1.0)]
-const MY_ROUTE_COLOR := Color(0.35, 1.0, 0.55)
-
-func _draw_routes() -> void:
-	var me = world.get_athlete(my_id)
-	var offense: bool = me != null and me.team == world.offense_team
-	var is_run := world.is_run_play()
-	var show: bool = me != null and world.phase == World.Phase.PRESNAP and (not offense or is_run or not world.route_of.is_empty())
-	if not show:
-		if _route_key != 0:
-			route_mesh.clear_surfaces()
-			_route_key = 0
-		return
-	# Rebuilding an ImmediateMesh re-uploads it to the GPU; only do it when the art's inputs
-	# change. Offense art = routes + protection lines, defense art = assignments; both depend
-	# on every athlete's position, the calls, the LOS and which side you're on.
-	var key_src := [my_id, me.team, world.offense_team, field.width, world.los_y, world.play_name, is_run, world.route_of, world.defensive_call]
-	for a in world.athletes:
-		key_src.append(a.position)
-	var key := hash(key_src)
-	if key == _route_key:
-		return
-	_route_key = key
-	route_mesh.clear_surfaces()
-	if not offense:
-		_draw_defense_routes(me.team)
-		return
-	route_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var blocks := {}
-	if is_run:
-		var back := world.find_role(me.team, Athlete.Role.RB)
-		var qb := world.find_role(me.team, Athlete.Role.QB)
-		if back and qb:
-			var mine := back.id == my_id
-			var color: Color = MY_ROUTE_COLOR if mine else ROUTE_COLORS[0]
-			_route_ribbon([back.position, qb.position] + world.run_path(), color, 0.48 if mine else 0.34)
-		blocks = world.run_block_assignments()
-	var k := 0
-	for id in world.route_of:
-		var a = world.get_athlete(id)
-		var pts: Array = [a.position] + Routes.path_for(world.route_of[id], a.position, field.width)
-		var mine: bool = id == my_id
-		var c: Color = MY_ROUTE_COLOR if mine else ROUTE_COLORS[k % ROUTE_COLORS.size()]
-		k += 1
-		_route_ribbon(pts, c, 0.42 if mine else 0.3)
-	for blocker in world.athletes:
-		if blocker.team != me.team or blocker.role not in [Athlete.Role.C, Athlete.Role.OL]:
-			continue
-		var defender = world.get_athlete(blocks.get(blocker.id, -1)) if is_run else world.protection_target(blocker)
-		if defender != null:
-			var mine: bool = blocker.id == my_id
-			_route_ribbon([blocker.position, defender.position], MY_ROUTE_COLOR if mine else Color(0.76, 0.82, 0.90), 0.42 if mine else 0.22)
-	route_mesh.surface_end()
-
-func _draw_defense_routes(team: int) -> void:
-	if world.defensive_call.is_empty():
-		return
-	route_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var matchups: Dictionary = world.man_assignments()
-	for athlete in world.athletes:
-		if athlete.team != team:
-			continue
-		var assignment: Dictionary = world.defense_assignment(athlete)
-		var mine: bool = athlete.id == my_id
-		if assignment.kind == "man":
-			if matchups.has(athlete.id):
-				var receiver = world.get_athlete(matchups[athlete.id])
-				_route_ribbon([athlete.position, receiver.position], Color(1.0, 0.82, 0.38), 0.50 if mine else 0.26)
-			continue
-		var target: Vector2 = assignment.target
-		var color := Color(1.0, 0.30, 0.26)
-		if assignment.kind == "zone":
-			color = Color(0.50, 0.68, 1.0) if assignment.deep else Color(0.24, 0.94, 0.81)
-			_disc(target, 2.0 if mine else 1.5, Color(color, 0.35), 0.055, 0.65)
-		_route_ribbon([athlete.position, target], color, 0.50 if mine else 0.26)
-	route_mesh.surface_end()
-
-func _route_ribbon(pts: Array, c: Color, wdt: float) -> void:
-	var h := 0.06
-	var total := 0.0
-	for i in range(pts.size() - 1):
-		total += (pts[i + 1] - pts[i]).length()
-	var run := 0.0
-	for i in range(pts.size() - 1):
-		var p0: Vector2 = pts[i]
-		var p1: Vector2 = pts[i + 1]
-		var seg := p1 - p0
-		if seg.length() < 0.01:
-			continue
-		var dir := seg.normalized()
-		var is_last := i == pts.size() - 2
-		if is_last:   # leave room for the arrowhead
-			p1 = p1 - dir * minf(1.1, seg.length() * 0.6)
-		var n := Vector2(-dir.y, dir.x) * wdt * 0.5
-		var a0 := c * Color(1, 1, 1, lerpf(0.75, 1.0, run / maxf(total, 0.01)))
-		run += seg.length()
-		var a1 := c * Color(1, 1, 1, lerpf(0.75, 1.0, run / maxf(total, 0.01)))
-		_tri(p0 + n, p0 - n, p1 + n, a0, a0, a1, h)
-		_tri(p1 + n, p0 - n, p1 - n, a1, a0, a1, h)
-		if i > 0:   # round the joint
-			_disc(p0, wdt * 0.5, a0, h)
-		if is_last:
-			var tip: Vector2 = pts[i + 1]
-			var base := p1
-			var wing := Vector2(-dir.y, dir.x) * wdt * 1.6
-			_tri(base + wing, base - wing, tip, a1, a1, a1, h)
-	_disc(pts[0], wdt * 1.1, c, h)
-
-func _tri(a: Vector2, b: Vector2, c2: Vector2, ca: Color, cb: Color, cc: Color, h: float) -> void:
-	for pc in [[a, ca], [b, cb], [c2, cc]]:
-		route_mesh.surface_set_color(pc[1])
-		route_mesh.surface_add_vertex(Vector3(pc[0].x, h, -pc[0].y))
-
-func _disc(p: Vector2, r: float, c: Color, h: float, depth_scale: float = 1.0) -> void:
-	for s in 10:
-		var t0 := TAU * s / 10.0
-		var t1 := TAU * (s + 1) / 10.0
-		_tri(p, p + Vector2(cos(t0), sin(t0) * depth_scale) * r, p + Vector2(cos(t1), sin(t1) * depth_scale) * r, c, c, c, h)
-
 func _process(delta: float) -> void:
 	_render_frame()
+	for c in components:
+		c.on_frame(delta)
 	_update_coin_toss()
 	if not replay_active:   # the postgame show waits for the highlight reel
 		_tick_postgame(delta)
@@ -1912,7 +1932,7 @@ func _process(delta: float) -> void:
 		side += " | CALL: %s" % World.DefensivePlaybook.CALLS[world.defensive_call].name
 	var phase_name: String = ["PRE-SNAP", "LIVE", "DEAD"][world.phase]
 	if world.offense_team != my_team and world.phase == World.Phase.PRESNAP:
-		phase_name = presnap_defense_prompt(world.get_athlete(my_id))
+		phase_name = presnap_defense_prompt(world.get_athlete(my_id), roam_hint_key())
 	if world.phase == World.Phase.DEAD and last_whistle != "":
 		phase_name = "%s at %.1f" % [last_whistle, world.dead_ball_spot.y]
 	var situation: String = series.downs.label()
@@ -1941,7 +1961,7 @@ func _process(delta: float) -> void:
 		if is_client() and net.refused_reason != "":
 			hud.text = "COULDN'T JOIN THE MATCH\n%s%s" % [net.refused_reason, "" if net.version_refused else "\n\nAsk the host for a bigger match, or try again later."]
 			return
-		var host_keys := "\nHost: [3/5/7] size   [M] mode   [H] quarter length" if is_server() else ""
+		var host_keys := "\nHost: [3/5/7] size   [M] mode   [H] quarter length   [I] pass marker" if is_server() else ""
 		var lobby_text := "PRIVATE MATCH LOBBY   Invite code: %s\n%s\n[Enter] ready. Starts when everyone is ready.%s" % [lobby.code, lobby.summary(), host_keys]
 		if is_server() and lobby.notice != "":
 			lobby_text += "\n" + lobby.notice

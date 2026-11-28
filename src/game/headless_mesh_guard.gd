@@ -1,13 +1,18 @@
 extends Node
-## Headless-only (#92): keeps a MeshInstance3D's mesh alive until a frame after the node
-## is freed.
+## Headless-only (#92, #217): stops the dummy renderer's `Parameter "m" is null`
+## (mesh_storage.h:120) when an in-tree mesh node is freed.
 ##
-## Godot 4.3's dummy renderer (--headless) has no dependency tracking. When a
-## MeshInstance3D holds the last reference to its mesh, freeing the node frees the mesh
-## RID first, then the render instance asks the dummy storage for that dead mesh's
-## surface count. That prints `Parameter "m" is null` (mesh_storage.h:120) once per node,
-## about 419 times in tests/menu_flow.gd. Holding the mesh until the instance is gone avoids
-## it. Real renderers track dependencies and never hit this, so Launch adds this node only
+## Two things combine in Godot 4.3's dummy renderer (--headless):
+## 1. No dependency tracking: freeing a mesh RID doesn't tell the instances using it.
+## 2. Pending instance updates (any instance_set_* since the last flush) are flushed when
+##    some instance is freed, and the flush asks storage for each instance's mesh.
+## A node that frees its mesh before its render instance therefore errors once per flush
+## that reaches a dead mesh: a MeshInstance3D holding the last reference to its mesh (about
+## 419 times in tests/menu_flow.gd), or a Label3D, which always frees its own mesh first.
+## When such a node leaves the tree (before its destructor runs), this guard holds a
+## MeshInstance3D's mesh until a frame after the node is gone, and for a Label3D (whose
+## mesh it can't hold) flushes the pending updates right away, while the mesh is alive.
+## Real renderers track dependencies and never hit this, so Launch adds this node only
 ## when the display server is headless. Rendering is untouched either way.
 
 var _held: Array = []   # [WeakRef(node), mesh]: removed nodes whose mesh we keep alive
@@ -36,6 +41,10 @@ func _on_node_removed(n: Node) -> void:
 	if n is MeshInstance3D and n.mesh != null:
 		_held.append([weakref(n), n.mesh])
 		set_process(true)
+	elif n is Label3D:
+		# It has left the world, so its last pending update (the scenario change) is queued.
+		# Flush it now, while the Label3D's own mesh is still alive (#217).
+		RenderingServer.free_rid(RenderingServer.instance_create())
 
 func _process(_dt: float) -> void:
 	# Freed (render instance gone, so dropping the mesh is safe) or back in the tree

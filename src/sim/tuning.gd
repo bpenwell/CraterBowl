@@ -11,6 +11,12 @@ const SPIN_SPEED := 7.5
 const DASH_TIME := 0.22
 const SPIN_TIME := 0.32
 const MOVE_CHARGE_PER_YARD := 0.05
+# Jump (#379): Space / A in live play. A committed hop: takeoff velocity, no steering.
+const JUMP_TIME := 0.6             # s in the air
+const JUMP_HEIGHT := 0.9           # yd, feet at the peak (mid-air)
+const JUMP_STAMINA := 0.05         # stamina per jump
+const JUMP_CHAIN_STAMINA := 0.25   # instead, for a jump within JUMP_CHAIN_WINDOW of the last landing
+const JUMP_CHAIN_WINDOW := 0.5     # s after landing
 const QB_DROPBACK_SLOW_START := 14.0  # yards behind the line of scrimmage
 const QB_DROPBACK_SLOW_END := 20.0
 const QB_DROPBACK_SPEED_FLOOR := 0.65
@@ -46,13 +52,20 @@ const THROW_INHERIT := 0.3      # fraction of thrower velocity added to ball
 const PLAYER_PASS_POWER := 0.68
 const THROW_CHARGE_TIME := 0.9  # POV passer: seconds of hold to full power (distance)
 
+# Offensive alignment, as fractions of the field width.
+const TWINS_RIGHT_INNER_X := 0.68
+const TWINS_RIGHT_OUTER_X := 0.84
+
 # Catching
 const CATCH_RADIUS := 1.2
 const CATCH_MIN_HEIGHT := 0.3
 const CATCH_MAX_HEIGHT := 2.6
 const CONTEST_MARGIN := 0.35
 const MIN_PASS_TRAVEL := 2.5      # ball must travel this far before it can be caught/deflected
+const BATTED_PASS_MAX_TRAVEL := 5.0   # short defensive contact ends the pass incomplete
 const INT_RADIUS := 0.6           # defender must be this close to the ball to intercept
+const GROUNDING_PRESSURE_RADIUS := 2.5
+const GROUNDING_RECEIVER_RADIUS := 5.0
 
 # Tackling
 const DIVE_SPEED := 11.0
@@ -79,10 +92,20 @@ const AI_DIVE_RANGE := 2.0
 const BODY_RADIUS := 0.45
 const ENGAGE_DIST := 1.0
 const ENGAGE_FACING_DOT := 0.3
+## A defender moving faster than ENGAGE_FOE_MOVING (yd/s) is blocked only when his heading . the
+## direction to the blocker reaches ENGAGE_FOE_HEADING_DOT (the blocker is ahead of his path, about
+## 78 deg either side): no blocks from behind or on a pair running side by side the same way.
+const ENGAGE_FOE_MOVING := 1.0
+const ENGAGE_FOE_HEADING_DOT := 0.2
 const BLOCK_DRIVE := 0.7       # fraction of defender displacement taken from blocker
 const BLOCK_HOLD := 1.5
 const BLOCK_IMMUNITY := 0.75
 const BLOCKER_BEATEN := 1.5   # after a shed, the blocker cannot re-engage for this long
+
+# Blocking zone (#253): offensive C/OL may not be more than this far past the LOS when a pass is thrown
+const BLOCK_ZONE_DEPTH := 5.0            # yd past the LOS; exactly 5 is legal
+const BLOCK_ZONE_PENALTY_YARDS := 10.0    # illegal man downfield: yards from the previous spot, down replayed
+const AI_BLOCK_ZONE_MARGIN := 1.0        # bot linemen stop this far inside the zone (collisions nudge them)
 
 # AI QB
 const AI_QB_THROW_TIME := 2.0

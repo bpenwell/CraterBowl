@@ -17,6 +17,7 @@ func _run() -> void:
 	game.leaderboard_path = "user://test_return_td_leaderboard.json"
 	game.replay_dir = "user://test_return_td_replays"
 	game.series.start_match(0, false)
+	game.series.choose_toss(game.series.toss_winner, "receive")   # #129: skip the coin-toss cutscene
 	game.series.score[1] = 7
 	var world = game.world
 	var kicker = world.kicker()

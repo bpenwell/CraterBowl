@@ -8,7 +8,9 @@ const Mats := preload("res://src/game/art/materials.gd")
 const UITheme := preload("res://src/ui/ui_theme.gd")
 const T := preload("res://src/sim/tuning.gd")
 const Routes := preload("res://src/sim/routes.gd")
+const World := preload("res://src/sim/world.gd")
 const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
+const Penalties := preload("res://src/sim/penalties.gd")
 ## Picker buttons, built once (#169): the longest list either side shows. Offense with a run
 ## back: passes + runs + Repeat last/Flip play; defense: calls + Repeat last.
 var PICKER_POOL := maxi(Routes.PLAY_NAMES.size() + Routes.RUN_NAMES.size() + 2, DefensivePlaybook.CALLS.size() + 1)
@@ -49,6 +51,10 @@ var play_clock_l: Label
 var play_clock_div: ColorRect
 var status_l: Label
 var status_pill: PanelContainer
+## #253: penalty line, from the flag until the next snap (above the status pill, right-aligned).
+const FLAG_YELLOW := Color(1.0, 0.84, 0.12)
+var flag_pill: PanelContainer
+var flag_l: Label
 var mode_l: Label
 var spot_l: Label
 var field_strip: Control
@@ -58,6 +64,7 @@ var picker_title: Label
 var coaching_text: Label
 var picker_grid: GridContainer
 var route_select: OptionButton
+var formation_select: OptionButton
 var picker_side := -1
 var picker_calls: Array = []
 var _picker_main   # set on refresh; pooled buttons call its do_action
@@ -219,6 +226,18 @@ func _build_scorebug() -> void:
 	root.add_child(status_pill)
 	status_l = _label(17, Color(0.95, 0.97, 1.0), 700)
 	status_pill.add_child(status_l)
+	flag_pill = PanelContainer.new()
+	flag_pill.name = "FlagPill"
+	var fs := _box(FLAG_YELLOW, 6, Color(0.03, 0.04, 0.1, 0.6), 1)
+	fs.content_margin_top = 2
+	fs.content_margin_bottom = 2
+	flag_pill.add_theme_stylebox_override("panel", fs)
+	flag_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flag_pill.visible = false
+	root.add_child(flag_pill)
+	flag_l = _label(18, Color(0.06, 0.06, 0.1), 800)
+	flag_l.label_settings.shadow_size = 0
+	flag_pill.add_child(flag_l)
 
 func _divider() -> ColorRect:
 	var d := ColorRect.new()
@@ -250,6 +269,15 @@ func _build_picker() -> void:
 	column.add_child(picker_title)
 	coaching_text = _label(16)
 	column.add_child(coaching_text)
+	formation_select = OptionButton.new()
+	formation_select.focus_mode = Control.FOCUS_NONE
+	for formation in World.FORMATION_NAMES:
+		formation_select.add_item("Formation · " + formation)
+	formation_select.item_selected.connect(func(index: int):
+		if _picker_main != null:
+			_picker_main.do_action({"a": "formation", "f": index}))
+	formation_select.hide()
+	column.add_child(formation_select)
 	picker_grid = GridContainer.new()
 	picker_grid.columns = 2
 	picker_grid.add_theme_constant_override("h_separation", 6)
@@ -416,7 +444,7 @@ func on_event(n: String, d: Dictionary) -> void:
 			show_banner("TOUCHDOWN", TEAM_NAMES[t] if t >= 0 and t < 2 else "", Color(1.0, 0.86, 0.3), 3.0)
 		"interception": show_banner("INTERCEPTION", "", ALERT)
 		"fumble": show_banner("FUMBLE", "", ALERT)
-		"tackle":
+		"tackle", "out_of_bounds":
 			var credit := float(d.get("progress", 0.0))
 			if credit >= T.FORWARD_PROGRESS_BANNER:
 				show_banner("FORWARD PROGRESS", "+%d YD" % maxi(1, roundi(credit)), ACCENT, 1.6)
@@ -429,7 +457,17 @@ func on_event(n: String, d: Dictionary) -> void:
 		"snap":
 			if banner.text in ["TIMEOUT", "ONE-MINUTE WARNING"]:
 				banner_t = 0.0
+			flag_pill.visible = false
+		"flag":
+			show_banner("FLAG", Penalties.name_of(d), FLAG_YELLOW, 1.8)
+			_show_flag(Penalties.ruling(d))
+		"penalty":
+			_show_flag(str(d.get("ruling", "")))
 	_track_play(n, d)
+
+func _show_flag(text: String) -> void:
+	flag_l.text = text
+	flag_pill.visible = text != ""
 
 ## Remember what the current play did, for the dead-ball summary.
 func _track_play(n: String, d: Dictionary) -> void:
@@ -633,12 +671,14 @@ func _status_text(main) -> String:
 				var won: bool = s.toss_winner == w.get_athlete(main.my_id).team
 				return "YOU WON THE TOSS" if won else "%s IS CHOOSING" % TEAM_NAMES[clampi(s.toss_winner, 0, 1)]
 			# #131: the kicker keeps the J / click hint (the only place a new player learns to
-			# kick) until the kick meter (#68) carries it; the return team gets no narration.
+			# kick; #68's meter shows power, not the key); the return team gets no narration.
 			if w.kick_play == "kickoff":
 				return "PRESS J OR CLICK TO KICK" if mine else ""
 			if w.kick_play != "" and mine:
 				return ("PUNT" if w.kick_play == "punt" else "FIELD GOAL") + "  ·  PRESS K TO CHANGE"
-			return ""
+			# #183: a set defender is told how to roam until they've done it once this session.
+			var roam_key: String = main.roam_hint_key()
+			return "" if roam_key == "" else main.presnap_defense_prompt(w.get_athlete(main.my_id), roam_key)
 		1:
 			if main.world.is_chaos():
 				return "PASS CLOCK %.1f" % maxf(0.0, main.T.PASS_CLOCK - w.hold_t)
@@ -667,11 +707,18 @@ func _refresh_picker(main, final: bool) -> void:
 		picker_title.text = card[0]
 		coaching_text.text = card[1]
 		route_select.hide()
+		formation_select.hide()
 		return
 	picker.visible = not final and w.phase == w.Phase.PRESNAP and w.kick_play != "kickoff" and main.play_picker_open and not main.scoreboard_held and not main.replay_active
 	if not picker.visible:
 		return
-	var side := 0 if w.get_athlete(main.my_id).team == w.offense_team else 1
+	var athlete = w.get_athlete(main.my_id)
+	formation_select.visible = w.can_choose_formation(athlete)
+	if formation_select.visible:
+		var formation: int = w.offensive_formation()
+		if formation_select.selected != formation:
+			formation_select.select(formation)
+	var side := 0 if athlete.team == w.offense_team else 1
 	var offense := side == 0
 	var calls: Array = w.available_plays() if offense else w.DefensivePlaybook.CALLS.keys()
 	_picker_main = main
@@ -765,3 +812,7 @@ func _layout_stack() -> void:
 	var pm := status_pill.get_combined_minimum_size()
 	status_pill.size = pm
 	status_pill.position = Vector2(bug_left, bug_top - 4.0 - pm.y)
+	if flag_pill.visible:
+		var fm := flag_pill.get_combined_minimum_size()
+		flag_pill.size = fm
+		flag_pill.position = Vector2(bug_left + br.size.x - fm.x, bug_top - 4.0 - pm.y - 6.0 - fm.y)

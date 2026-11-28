@@ -12,9 +12,8 @@
 # Runs accumulate in one output dir, so call it once per kind you need:
 #   OUT/before/<name>.png  OUT/after/<name>.png  OUT/compare/<name>.png  (before left, after right)
 # and it prints "PAIR <name> changed=<pct>%" per pair. A pair you meant to change that says
-# UNCHANGED means the capture missed your change: pick other frames/screens. The percent is a
-# hint, not proof: menu players sway and the music bar moves, so untouched menu screens
-# still show ~2-3%. Look at compare/*.png.
+# UNCHANGED has no sampled changes beyond tolerance. Positive changes that round to 0.0%
+# display as <0.1%. Menu animations can move a few percent of pixels. Look at compare/*.png.
 # Sides run one after the other (PARALLEL=1 halves the time but adds timing drift).
 # Publish with ./scripts/pr_evidence.sh <PR#> OUT. Guide: docs/TESTING.md "Before/after screenshots".
 set -uo pipefail
@@ -91,6 +90,7 @@ run_side() {
       echo "before: visual checks failed on the base (expected when they cover the new behavior)"
     else
       echo "$side: capture exited $status"; grep -E "SCRIPT ERROR|VISUAL FAIL|SHOT FAIL" "$log" | head -10
+      return "$status"
     fi
   fi
 }
@@ -115,7 +115,11 @@ else
 fi
 [[ $sb -eq 0 && $sa -eq 0 ]] || { echo "BEFORE/AFTER FAIL"; exit 1; }
 
-"$GODOT" --headless --path "$ROOT" -s res://tools/compare.gd -- \
-  --before="$OUT/before" --after="$OUT/after" --out="$OUT/compare" 2>/dev/null \
-  | grep -E "^(PAIR|ONLY_)" | sed -E 's/^(PAIR .* changed=0\.0%.*)$/\1  UNCHANGED/'
+if ! comparison=$("$GODOT" --headless --path "$ROOT" -s res://tools/compare.gd -- \
+  --before="$OUT/before" --after="$OUT/after" --out="$OUT/compare" 2>&1); then
+  printf '%s\n' "$comparison" >&2
+  echo "BEFORE/AFTER FAIL: comparison" >&2
+  exit 1
+fi
+printf '%s\n' "$comparison" | grep -E "^(PAIR|ONLY_)"
 echo "BEFORE/AFTER OK  $OUT  (view compare/*.png; publish: ./scripts/pr_evidence.sh <PR#> $OUT)"

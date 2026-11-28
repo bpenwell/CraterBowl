@@ -20,6 +20,8 @@ var blocking := false
 var move_charge := 2.0
 var move_t := 0.0
 var spin_move := false
+var jump_t := 0.0         # s left in the air; > 0 while jumping (#379)
+var jump_chain_t := 0.0   # s left after landing in which another jump counts as chained
 var spin_dir := 0          # -1 left, +1 right: which way the last spin turned (visual)
 var emote_cd := 0.0        # taunt rate limit (cosmetic)
 var set_lock := false    # pre-snap: held in stance until break_stance (defense)
@@ -56,7 +58,7 @@ func face(dir: Vector2) -> void:
 		facing = dir.normalized()
 
 func start_move(spin: bool, direction: Vector2) -> bool:
-	if move_charge < 1.0 or move_t > 0.0 or not can_act():
+	if move_charge < 1.0 or move_t > 0.0 or not can_act() or is_jumping():
 		return false
 	if not direction.is_zero_approx():
 		facing = direction.normalized()
@@ -69,8 +71,34 @@ func start_move(spin: bool, direction: Vector2) -> bool:
 func is_spinning() -> bool:
 	return move_t > 0.0 and spin_move
 
+func is_jumping() -> bool:
+	return jump_t > 0.0
+
+## 0 at takeoff, 1 at landing (0 when not jumping). For poses that blend into the jump (#361).
+func jump_progress() -> float:
+	return 1.0 - jump_t / T.JUMP_TIME if jump_t > 0.0 else 0.0
+
+## Feet height in yards: a parabola peaking at JUMP_HEIGHT mid-air.
+func jump_height() -> float:
+	var k := jump_progress()
+	return 4.0 * T.JUMP_HEIGHT * k * (1.0 - k)
+
+## Stamina the next jump would cost: more if chained right after a landing.
+func jump_cost() -> float:
+	return T.JUMP_CHAIN_STAMINA if jump_chain_t > 0.0 else T.JUMP_STAMINA
+
+## Hop with the current velocity. Not mid-move, mid-air, in a block or without the stamina.
+func start_jump() -> bool:
+	var cost := jump_cost()
+	if not can_act() or move_t > 0.0 or is_jumping() or engaged_with >= 0 or stamina < cost:
+		return false
+	stamina -= cost
+	blocking = false
+	jump_t = T.JUMP_TIME
+	return true
+
 func start_dive() -> bool:
-	if not can_act() or move_t > 0.0:
+	if not can_act() or move_t > 0.0 or is_jumping():
 		return false
 	blocking = false
 	dive_t = T.DIVE_TIME
@@ -84,11 +112,14 @@ func reset_state() -> void:
 	immune_t = 0.0
 	blocking = false
 	move_t = 0.0
+	jump_t = 0.0
+	jump_chain_t = 0.0
 	velocity = Vector2.ZERO
 
 func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false, speed_scale := 1.0) -> void:
-	blocking = wants_block and can_act() and move_t <= 0.0
+	blocking = wants_block and can_act() and move_t <= 0.0 and not is_jumping()
 	emote_cd = maxf(0.0, emote_cd - dt)
+	jump_chain_t = maxf(0.0, jump_chain_t - dt)
 	if dive_t > 0.0:
 		dive_t -= dt
 		velocity = facing * (T.DIVE_SPEED * speed_scale)
@@ -98,9 +129,18 @@ func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false, s
 			recover_t = T.DIVE_RECOVER
 		return
 	if recover_t > 0.0:
+		jump_t = 0.0   # knocked down mid-air (fumble hit): the jump is over
 		recover_t = maxf(0.0, recover_t - dt)
 		velocity = velocity.move_toward(Vector2.ZERO, T.DECEL * 2.0 * dt)
 		position = field.clamp_playable(position + velocity * dt)
+		return
+	if jump_t > 0.0:
+		# Committed: keep the takeoff velocity, no steering; land straight back into the run.
+		position = field.clamp_playable(position + velocity * dt)
+		jump_t = maxf(0.0, jump_t - dt)
+		last_sprinting = false
+		if jump_t <= 0.0:
+			jump_chain_t = T.JUMP_CHAIN_WINDOW
 		return
 	if move_t > 0.0:
 		velocity = facing * ((T.SPIN_SPEED if spin_move else T.DASH_SPEED) * speed_scale)

@@ -8,7 +8,7 @@ extends RefCounted
 const ACTIONS := [
 	["move_up", "Move up", KEY_W], ["move_down", "Move down", KEY_S],
 	["move_left", "Move left", KEY_A], ["move_right", "Move right", KEY_D],
-	["sprint", "Sprint", KEY_SHIFT], ["snap", "Snap / break stance (defense: double-tap) / fair catch", KEY_SPACE],
+	["sprint", "Sprint", KEY_SHIFT], ["snap", "Snap / break stance (defense: double-tap) / fair catch / jump (live)", KEY_SPACE],
 	["throw", "Throw (QB: hold to charge)", KEY_J], ["lob", "Lob modifier", KEY_CTRL],
 	["tackle", "Dive / tackle (pre-snap: cycle route)", KEY_F],
 	["spin_left", "Spin left (pre-snap: play picker)", KEY_Q], ["spin_right", "Spin right", KEY_E],
@@ -22,7 +22,7 @@ const OTHER_CONTROLS := [
 	"Mouse: look live · middle drag: look pre-snap · hold C: drag to a taunt, release (tap: last taunt)",
 	"QB / passer: mouse aims your view (look higher to throw higher) · hold left click to charge distance, release to throw",
 	"Hold right click: block",
-	"Gamepad: left stick move · right stick QB aim · A snap · B dive · X / Y spin · R3 handoff · RT pass · LT sprint",
+	"Gamepad: left stick move · right stick QB aim · A snap / jump · B dive · X / Y spin · R3 handoff · RT pass · LT sprint",
 	"Replay viewer: Space pause · Left / Right seek · [ / ] speed",
 ]
 const SYNTH_DEVICE := -42     # marks events we injected (never re-translated)

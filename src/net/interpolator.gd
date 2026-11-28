@@ -1,7 +1,8 @@
 extends RefCounted
 ## Buffers snapshots by server time and samples interpolated positions. Pure.
 
-const TICK_RATE := 60.0
+const Tick := preload("res://src/sim/tick.gd")
+const TICK_RATE := Tick.HZ   # snapshot ticks -> server seconds
 const MAX_BUFFER := 32
 
 var buf: Array = []   # [[server_time, positions(PackedFloat32Array xy pairs), ball(Vector3)], ...]

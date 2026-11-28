@@ -213,7 +213,7 @@ func set_assignment(id: int, aid: int) -> void:
 	if peer_athlete.has(id):
 		_clear_inputs(peer_athlete[id])
 	peer_athlete[id] = aid
-	_send(id, {"k": "welcome", "aid": aid, "size": match_size, "mode": match_mode}, true)
+	_send(id, {"k": "welcome", "aid": aid, "size": match_size, "mode": match_mode, "v": protocol_version}, true)
 
 func _on_peer_disconnected(id: int) -> void:
 	_awaiting_hello.erase(id)
@@ -294,6 +294,14 @@ func send_action(action: Dictionary) -> void:
 	if mode == Mode.CLIENT and my_athlete >= 0:
 		_send(1, {"k": "act", "act": action}, true)
 
+## Client: the host turned us away (a `refused` packet, or a welcome on another version): hang up.
+func _refused_by_host(reason: String, version_mismatch: bool) -> void:
+	refused_reason = reason
+	version_refused = version_mismatch
+	print("NET refused by host: %s" % refused_reason)
+	refused.emit(refused_reason)
+	peer.close.call_deferred()
+
 # ---- both ----
 func _on_packet(from: int, bytes: PackedByteArray) -> void:
 	var msg = bytes_to_var(bytes)   # never decodes objects
@@ -310,11 +318,7 @@ func _on_packet(from: int, bytes: PackedByteArray) -> void:
 		"refused":
 			if mode == Mode.CLIENT and from == 1:
 				var why = msg.get("why", "")
-				refused_reason = str(why).left(120) if why is String and why != "" else "The host refused the connection"
-				version_refused = msg.has("v")
-				print("NET refused by host: %s" % refused_reason)
-				refused.emit(refused_reason)
-				peer.close.call_deferred()
+				_refused_by_host(str(why).left(120) if why is String and why != "" else "The host refused the connection", msg.has("v"))
 		"in":
 			if mode == Mode.SERVER and peer_athlete.has(from):
 				_queue_input(peer_athlete[from], P.sanitize_input(msg))
@@ -329,6 +333,11 @@ func _on_packet(from: int, bytes: PackedByteArray) -> void:
 				lobby_received.emit(msg["s"])
 		"welcome":
 			if mode == Mode.CLIENT and from == 1:
+				# #224: a pre-#165 host never checked our hello, so check its version here.
+				var host_refusal := P.host_version_refusal(msg.get("v"), protocol_version)
+				if host_refusal != "":
+					_refused_by_host(host_refusal, true)
+					return
 				var size = msg.get("size", 7)
 				var rules = msg.get("mode", "classic")
 				var aid = msg.get("aid")

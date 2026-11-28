@@ -41,11 +41,11 @@ if [ $cap -ne 0 ] || grep -E "SCRIPT ERROR|Parse Error" .net-capacity.log | grep
   grep -E "SCRIPT ERROR|Parse Error|at: " .net-capacity.log | head; echo "NET CAPACITY FAIL"; exit 1
 fi
 # Matchmaking: matchmaker + 2 queued clients
-./scripts/mm_test.sh | tail -1 | grep -q "MM TEST PASS" || { echo "MM TEST FAIL"; exit 1; }
-MODE=competitive ./scripts/mm_test.sh | tail -1 | grep -q "MM TEST PASS" || { echo "MM TEST FAIL (competitive)"; exit 1; }
-MODE=party ./scripts/mm_test.sh | tail -1 | grep -q "MM TEST PASS" || { echo "MM TEST FAIL (party)"; exit 1; }
-MODE=chaos ./scripts/mm_test.sh | tail -1 | grep -q "MM TEST PASS" || { echo "MM TEST FAIL (chaos)"; exit 1; }
-MODE=dupname ./scripts/mm_test.sh | tail -1 | grep -q "MM TEST PASS" || { echo "MM TEST FAIL (dupname)"; exit 1; }
+# A failing run prints its whole output (what never happened + log tails), not just the verdict (#283).
+for mode in casual competitive party chaos dupname; do
+  MODE=$mode ./scripts/mm_test.sh > .mm-test.log 2>&1
+  tail -1 .mm-test.log | grep -q "MM TEST PASS" || { cat .mm-test.log; echo "MM TEST FAIL ($mode)"; exit 1; }
+done
 echo "MM TEST PASS"
 after=$(ls -l --time-style=+%s "$USERDATA"/{profile,leaderboard,ranked}.json "$USERDATA"/settings.cfg "$USERDATA"/replays 2>/dev/null)
 if [ "$before" != "$after" ]; then echo "USER DATA TOUCHED BY TESTS: $after"; exit 1; fi

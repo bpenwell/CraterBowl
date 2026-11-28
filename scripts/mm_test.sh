@@ -11,20 +11,24 @@ if [ "$MODE" = "chaos" ]; then QUEUE=casual; PARTY="--mode=chaosball"; fi
 # dupname: competitive with both players named Ann (#59: seating must not be keyed by display name).
 NAME_B=Ben
 if [ "$MODE" = "dupname" ]; then QUEUE=competitive; NAME_B=Ann; fi
+. scripts/wait_lib.sh   # wait_for / log_has / show_logs: deadline polls, never fixed counts (#283)
+LOGS=".mm-server.log .mm-a.log .mm-b.log"
+# fail WHAT: stop everything, say which step never happened, and show the log tails.
+fail() { kill ${A:-} ${B:-} $MM 2>/dev/null; wait ${A:-} ${B:-} $MM 2>/dev/null; echo "MM TEST FAIL ($MODE): $1"; show_logs $LOGS; exit 1; }
+rm -f $LOGS
 "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
-timeout 60 "$GODOT" --headless --path . -- --matchmaker --port="$MMPORT" > .mm-server.log 2>&1 &
+timeout $((60 + WAIT_SECS)) "$GODOT" --headless --path . -- --matchmaker --port="$MMPORT" > .mm-server.log 2>&1 &
 MM=$!
-sleep 1
-timeout 55 "$GODOT" --headless --path . -- --queue=$QUEUE $PARTY --mm=127.0.0.1:"$MMPORT" --size=3 --advertise=127.0.0.1 --name=Ann --rating=1000 --profile-file=user://test_mm_profile.json --leaderboard-file=user://test_mm_lb.json --ranked-file=user://test_mm_ranked.json > .mm-a.log 2>&1 &
+wait_for "$WAIT_SECS" "$MM" log_has "^MM server on $MMPORT: OK" .mm-server.log || fail "matchmaker never listened on $MMPORT after ${WAITED}s"
+timeout $((55 + WAIT_SECS)) "$GODOT" --headless --path . -- --queue=$QUEUE $PARTY --mm=127.0.0.1:"$MMPORT" --size=3 --advertise=127.0.0.1 --name=Ann --rating=1000 --profile-file=user://test_mm_profile.json --leaderboard-file=user://test_mm_lb.json --ranked-file=user://test_mm_ranked.json > .mm-a.log 2>&1 &
 A=$!
-sleep 0.5
-timeout 55 "$GODOT" --headless --path . -- --queue=$QUEUE $PARTY --mm=127.0.0.1:"$MMPORT" --size=3 --advertise=127.0.0.1 --name=$NAME_B --rating=1050 --profile-file=user://test_mm_b_profile.json --leaderboard-file=user://test_mm_b_lb.json --ranked-file=user://test_mm_b_ranked.json > .mm-b.log 2>&1 &
+# A queues first (it used to get a fixed 0.5 s head start).
+wait_for "$WAIT_SECS" "$MM $A" log_has "^MM enqueue [0-9]+ -> true" .mm-server.log || fail "first client never reached the queue after ${WAITED}s"
+timeout $((55 + WAIT_SECS)) "$GODOT" --headless --path . -- --queue=$QUEUE $PARTY --mm=127.0.0.1:"$MMPORT" --size=3 --advertise=127.0.0.1 --name=$NAME_B --rating=1050 --profile-file=user://test_mm_b_profile.json --leaderboard-file=user://test_mm_b_lb.json --ranked-file=user://test_mm_b_ranked.json > .mm-b.log 2>&1 &
 B=$!
+started() { log_has "NET match started" .mm-a.log .mm-b.log && log_has "NET assigned athlete" .mm-a.log .mm-b.log; }
 ok=0
-for i in $(seq 1 450); do
-  if grep -q "NET match started" .mm-a.log .mm-b.log 2>/dev/null && grep -q "NET assigned athlete" .mm-a.log .mm-b.log 2>/dev/null; then ok=1; break; fi
-  sleep 0.1
-done
+wait_for "$WAIT_SECS" "$MM $A $B" started && ok=1
 kill $A $B $MM 2>/dev/null; wait $A $B $MM 2>/dev/null
 grep -hE "^MM |^QUEUE|NET match started|NET seats|NET assigned" .mm-server.log .mm-a.log .mm-b.log
 if grep -hE "SCRIPT ERROR|Parse Error" .mm-server.log .mm-a.log .mm-b.log | grep -q .; then
@@ -53,4 +57,5 @@ if [ $ok -eq 1 ] && grep -qE "NET match started: (Chaosball )?3v3.*(Ann ✓, $NA
   done
   echo "MM TEST PASS ($MODE)"; exit 0
 fi
-echo "MM TEST FAIL"; exit 1
+[ $ok -eq 1 ] || { echo "MM TEST FAIL ($MODE): no match started with a seated joiner after ${WAITED}s"; show_logs $LOGS; exit 1; }
+echo "MM TEST FAIL ($MODE): the started match isn't the queued 3v3 with both players"; show_logs $LOGS; exit 1

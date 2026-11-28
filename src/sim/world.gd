@@ -4,6 +4,7 @@ extends RefCounted
 ## athlete id -> {"dir": Vector2, "sprint": bool}.
 
 const T := preload("res://src/sim/tuning.gd")
+const Tick := preload("res://src/sim/tick.gd")
 const Field := preload("res://src/sim/field.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
 const Ball := preload("res://src/sim/ball.gd")
@@ -11,8 +12,11 @@ const Passing := preload("res://src/sim/passing.gd")
 const Routes := preload("res://src/sim/routes.gd")
 const Emotes := preload("res://src/sim/emotes.gd")
 const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
+const Penalties := preload("res://src/sim/penalties.gd")
 
 enum Phase { PRESNAP, LIVE, DEAD }
+enum Formation { BALANCED, TWINS_RIGHT }
+const FORMATION_NAMES := ["Balanced", "Twins Right"]
 
 signal event(name: String, data: Dictionary)
 
@@ -66,6 +70,8 @@ var kick_blocked := false
 var kick_spot := Vector2.ZERO
 var fair_catch_id := -1  # returner who signaled a fair catch on this kick (#189), else -1
 var _kick_rest_t := 0.0
+var flags: Array = []            # penalty records thrown this down (#253; Penalties.make)
+var ball_crossed_los := false    # a runner took the ball past the LOS this down (#253, #312)
 
 func _init() -> void:
 	_impact_rolls = 0
@@ -325,6 +331,32 @@ func receivers_in_order() -> Array:
 		wrs.append(rb)
 	return wrs
 
+static func valid_formation(value) -> bool:
+	return value is int and value >= 0 and value < FORMATION_NAMES.size()
+
+func can_choose_formation(a: Athlete) -> bool:
+	return phase == Phase.PRESNAP and kick_play.is_empty() and not is_chaos() and a != null \
+		and a.team == offense_team and a.role == Athlete.Role.QB
+
+## The original left wideout lines up right of center only in Twins Right. Read the
+## received positions on clients, so a formation change needs no extra snapshot field.
+func offensive_formation() -> int:
+	var middle := field.width * 0.5
+	for a in athletes:
+		if a.team == offense_team and a.role == Athlete.Role.WR and a.home_x < middle:
+			return Formation.TWINS_RIGHT if a.position.x > middle else Formation.BALANCED
+	return Formation.BALANCED
+
+func choose_formation(by: Athlete, formation: int) -> bool:
+	if not can_choose_formation(by) or not valid_formation(formation):
+		return false
+	var middle := field.width * 0.5
+	for a in athletes:
+		if a.team == offense_team and a.role == Athlete.Role.WR:
+			var twins_x := T.TWINS_RIGHT_INNER_X if a.home_x < middle else T.TWINS_RIGHT_OUTER_X
+			a.position.x = a.home_x if formation == Formation.BALANCED else field.width * twins_x
+	return true
+
 func has_run_back() -> bool:
 	return not is_chaos() and find_role(offense_team, Athlete.Role.RB) != null
 
@@ -526,6 +558,8 @@ func step_athlete(a: Athlete, dir: Vector2, sprint: bool, dt: float, block := fa
 
 func _go_live() -> void:
 	phase = Phase.LIVE
+	flags = []
+	ball_crossed_los = false
 	_fp_carrier = -1
 	_fp_open = false
 	for a in athletes:
@@ -599,7 +633,7 @@ func handoff_receiver(id: int) -> Athlete:
 	if phase != Phase.LIVE or is_chaos() or handoff_cooldown > 0.0 or forward_pass_thrown or not ball.is_held_by(id):
 		return null
 	var qb := get_athlete(id)
-	if qb == null or qb.team != offense_team or qb.role != Athlete.Role.QB or not qb.can_act() or qb.position.y > los_y:
+	if qb == null or qb.team != offense_team or qb.role != Athlete.Role.QB or not qb.can_act() or qb.is_jumping() or qb.position.y > los_y:
 		return null
 	var back := find_role(offense_team, Athlete.Role.RB)
 	if back == null or not back.can_act() or back.position.y > los_y or back.position.distance_to(qb.position) > T.HANDOFF_REACH:
@@ -618,9 +652,9 @@ func handoff(id: int) -> bool:
 
 func can_throw(id: int) -> bool:
 	var a := get_athlete(id)
-	if a == null or phase != Phase.LIVE or not ball.is_held_by(id) or not a.can_act() or a.move_t > 0.0:
+	if a == null or phase != Phase.LIVE or not ball.is_held_by(id) or not a.can_act() or a.move_t > 0.0 or a.is_jumping():
 		return false
-	return rules["anyone_throws"] or (not forward_pass_thrown and a.position.y <= los_y)
+	return rules["anyone_throws"] or (not forward_pass_thrown and not ball_crossed_los and a.position.y <= los_y)
 
 ## Throw from the holder toward target (field plane) with power 0..1.
 func throw(id: int, target: Vector2, power: float, lob: bool = false, inherit_motion := true) -> bool:
@@ -647,6 +681,8 @@ func _launch(a: Athlete, v: Vector3, power: float, lob: bool) -> bool:
 	var id := a.id
 	var t_land := Passing.time_to_height(v, from.z, T.CATCH_HEIGHT, gravity())
 	var target := Vector2(from.x + v.x * t_land, from.y + v.y * t_land)
+	if not _check_grounding(a, target, t_land):
+		_check_blocking_zone(target)
 	ball.state = Ball.State.IN_FLIGHT
 	ball.holder_id = -1
 	ball.position = from
@@ -666,6 +702,14 @@ func tackle(id: int) -> bool:
 	if a == null or phase != Phase.LIVE:
 		return false
 	return a.start_dive()
+
+## Jump (#379): a committed hop in live play; costs stamina, more when chained.
+func jump(id: int) -> bool:
+	var a := get_athlete(id)
+	if a == null or phase != Phase.LIVE or not a.start_jump():
+		return false
+	event.emit("jump", {"by": id})
+	return true
 
 ## Taunt (cosmetic, any phase). Rate-limited per athlete.
 func emote(id: int, e: String) -> bool:
@@ -732,6 +776,7 @@ func step(inputs: Dictionary, dt: float) -> void:
 		prev.append(a.position)
 		var inp: Dictionary = inputs.get(a.id, {})
 		if phase == Phase.DEAD and ball.holder_id == a.id:
+			a.jump_t = 0.0   # the dead ball's holder is frozen at the spot: land him there (#379)
 			continue
 		var human := is_human_input(inp)
 		step_athlete(a, inp.get("dir", Vector2.ZERO), inp.get("sprint", false), dt, inp.get("block", false))
@@ -756,6 +801,65 @@ func step(inputs: Dictionary, dt: float) -> void:
 		_check_tackles()
 	if phase == Phase.LIVE and is_chaos():
 		_step_pass_clock(dt)
+	if phase == Phase.LIVE:
+		var rc := carrier()
+		if rc != null and rc.team == offense_team and rc.position.y > los_y:
+			ball_crossed_los = true
+
+## Blocking zone (#253): until a pass or a run (the ball carried past the LOS), offensive
+## linemen (C/OL, the roles `is_eligible_receiver` excludes) must stay within
+## BLOCK_ZONE_DEPTH of the line. Kick plays, Chaosball and free practice have no zone.
+func blocking_zone_active() -> bool:
+	return phase == Phase.LIVE and not is_chaos() and kick_play.is_empty() and not forward_pass_thrown 		and not ball_crossed_los and los_y <= field.length
+
+## Linemen more than BLOCK_ZONE_DEPTH past the LOS (exactly the depth is legal), deepest first.
+func linemen_past_zone() -> Array:
+	var out: Array = []
+	for a in athletes:
+		if a.team == offense_team and not is_eligible_receiver(a) and a.position.y - los_y > T.BLOCK_ZONE_DEPTH:
+			out.append(a)
+	out.sort_custom(func(x, y): return x.position.y > y.position.y)
+	return out
+
+## At a forward pass: flag illegal man downfield. A pass landing at or behind the line (a
+## screen) is exempt, as in real football, since only passes that cross the line care.
+## A rushed throw away from eligible targets is a spot foul (#254).
+func _check_grounding(passer: Athlete, target: Vector2, flight: float) -> bool:
+	if not blocking_zone_active() or passer.team != offense_team:
+		return false
+	var pressured := false
+	var receiver_radius_sq := T.GROUNDING_RECEIVER_RADIUS * T.GROUNDING_RECEIVER_RADIUS
+	var pressure_radius_sq := T.GROUNDING_PRESSURE_RADIUS * T.GROUNDING_PRESSURE_RADIUS
+	for a in athletes:
+		if a.team != passer.team:
+			if a.can_act() and a.engaged_with < 0 and a.position.distance_squared_to(passer.position) <= pressure_radius_sq:
+				pressured = true
+			continue
+		if a == passer or not is_eligible_receiver(a) or field.zone_of(a.position) == Field.Zone.OUT_OF_BOUNDS:
+			continue
+		var projected: Vector2 = a.position + a.velocity * flight
+		if a.position.distance_squared_to(target) <= receiver_radius_sq or (
+			field.zone_of(projected) != Field.Zone.OUT_OF_BOUNDS and projected.distance_squared_to(target) <= receiver_radius_sq
+		):
+			return false
+	if not pressured:
+		return false
+	throw_flag(Penalties.make(Penalties.INTENTIONAL_GROUNDING, offense_team, true, maxf(1.0, passer.position.y),
+		0.0, passer.id, false, true))
+	return true
+
+func _check_blocking_zone(target: Vector2) -> void:
+	if not blocking_zone_active() or target.y <= los_y:
+		return
+	var deep := linemen_past_zone()
+	if not deep.is_empty():
+		throw_flag(Penalties.make(Penalties.ILLEGAL_MAN_DOWNFIELD, offense_team, true, los_y,
+			T.BLOCK_ZONE_PENALTY_YARDS, deep[0].id))
+
+## Record a foul; the play goes on and Match enforces it at the dead ball.
+func throw_flag(p: Dictionary) -> void:
+	flags.append(p)
+	event.emit("flag", p)
 
 ## Linemen block any time; skill players only block downfield (after a catch
 ## or once the carrier is past the LOS), so receivers run routes instead.
@@ -786,7 +890,13 @@ func _step_blocks(prev: Array, inputs: Dictionary, dt: float) -> void:
 			if not _can_be_blocked(d):
 				continue
 			var to: Vector2 = d.position - b.position
-			if to.length() <= T.ENGAGE_DIST and b.facing.dot(to.normalized()) >= T.ENGAGE_FACING_DOT:
+			var dir := to.normalized()
+			# Face to face: the blocker faces the defender, and a moving defender is heading at
+			# the blocker (his velocity, not facing: a standing athlete's facing can be stale).
+			# No blocks from behind or on a pair running side by side the same way.
+			var d_spd: float = d.velocity.length()
+			var heading_in: bool = d_spd < T.ENGAGE_FOE_MOVING or d.velocity.dot(-dir) >= T.ENGAGE_FOE_HEADING_DOT * d_spd
+			if to.length() <= T.ENGAGE_DIST and b.facing.dot(dir) >= T.ENGAGE_FACING_DOT and heading_in:
 				b.engaged_with = d.id
 				d.engaged_with = b.id
 				b.engage_t = 0.0
@@ -927,7 +1037,7 @@ func _is_strip(diver: Athlete, c: Athlete) -> bool:
 ## Deterministic pseudo-random roll in [0, 1) from the play situation (sim must stay pure).
 func _impact_roll(a: int, b: int) -> float:
 	_impact_rolls += 1
-	var h := hash([1837, a, b, int(round(play_time * 60.0)), _impact_rolls])
+	var h := hash([1837, a, b, int(round(play_time * Tick.HZ)), _impact_rolls])
 	return float(posmod(h, 100000)) / 100000.0
 
 ## 0 when the diver comes from the side or front (facing dot <= FUMBLE_BEHIND_DOT),
@@ -976,8 +1086,7 @@ func _step_loose(dt: float) -> void:
 	if field.zone_of(bp) == Field.Zone.OUT_OF_BOUNDS:
 		dead_ball_spot = bp
 		dead_ball_team = last_possession
-		ball.state = Ball.State.DEAD
-		phase = Phase.DEAD
+		_end_play()
 		var data := {"spot": bp, "team": last_possession, "loose": true}
 		event.emit("out_of_bounds", data)
 		event.emit("whistle", data)
@@ -998,10 +1107,19 @@ func _step_loose(dt: float) -> void:
 		event.emit("recovery", {"by": best.id, "team": best.team, "turnover": best.team != last_possession})
 		last_possession = best.team
 
+func _end_play() -> void:
+	ball.state = Ball.State.DEAD
+	phase = Phase.DEAD
+	for athlete in athletes:
+		athlete.engaged_with = -1
+		athlete.engage_t = 0.0
+
 func _whistle(reason: String, data: Dictionary) -> void:
 	var c := carrier()
 	dead_ball_spot = c.position
-	if reason == "tackle":
+	if reason == "tackle" or reason == "out_of_bounds":
+		# Forward progress (#98, #103): driven back then tackled or forced out, the ball goes back to
+		# where contact stopped him. Out of bounds keeps x where he crossed (spot = y only).
 		var credit := forward_progress_credit()
 		dead_ball_spot.y += credit * attack_sign(c.team)
 		c.position = dead_ball_spot   # the dead ball (and its carrier) sits at the spot
@@ -1009,8 +1127,7 @@ func _whistle(reason: String, data: Dictionary) -> void:
 	dead_ball_team = c.team
 	data["spot"] = dead_ball_spot
 	c.velocity = Vector2.ZERO
-	ball.state = Ball.State.DEAD
-	phase = Phase.DEAD
+	_end_play()
 	event.emit(reason, data)
 	event.emit("whistle", data)
 
@@ -1037,8 +1154,7 @@ func _step_flight(dt: float) -> void:
 				ball.velocity.y *= T.BOUNCE_FRICTION
 				return
 		ball.velocity = Vector3.ZERO
-		ball.state = Ball.State.DEAD
-		phase = Phase.DEAD
+		_end_play()
 		var at := Vector2(ball.position.x, ball.position.y)
 		dead_ball_spot = at
 		event.emit("incomplete", {"at": at, "team": last_possession})
@@ -1061,8 +1177,7 @@ func _wall_bounce() -> void:
 		event.emit("bounce", {"n": bounces, "wall": true})
 		if bounces >= rules["max_bounces"]:
 			ball.velocity = Vector3.ZERO
-			ball.state = Ball.State.DEAD
-			phase = Phase.DEAD
+			_end_play()
 			var at := Vector2(ball.position.x, ball.position.y)
 			dead_ball_spot = at
 			event.emit("incomplete", {"at": at, "team": last_possession})
@@ -1073,21 +1188,26 @@ func is_eligible_receiver(a: Athlete) -> bool:
 		return true
 	return a.role != Athlete.Role.C and a.role != Athlete.Role.OL
 
+## Highest ball a player can catch or deflect: a jump raises it (high-pointing, #379).
+func catch_ceiling(a: Athlete) -> float:
+	return T.CATCH_MAX_HEIGHT + a.jump_height()
+
 ## Resolve catches for a ball in flight. Returns true if the play state changed.
 func _try_catch() -> bool:
 	var z := ball.position.z
-	if z < T.CATCH_MIN_HEIGHT or z > T.CATCH_MAX_HEIGHT:
+	if z < T.CATCH_MIN_HEIGHT or z > T.CATCH_MAX_HEIGHT + T.JUMP_HEIGHT:
 		return false
+	var bp := Vector2(ball.position.x, ball.position.y)
+	var travel := bp.distance_to(throw_origin)
 	# Not catchable/deflectable until it has left the thrower's immediate area.
-	if Vector2(ball.position.x - throw_origin.x, ball.position.y - throw_origin.y).length() < T.MIN_PASS_TRAVEL:
+	if travel < T.MIN_PASS_TRAVEL:
 		return false
 	if rules["anyone_throws"]:
 		return _try_catch_chaos()
-	var bp := Vector2(ball.position.x, ball.position.y)
 	var best := [null, null]   # per side: [offense, defense]
 	var best_d := [INF, INF]
 	for a in athletes:
-		if a.id == last_thrower_id or not is_eligible_receiver(a):
+		if a.id == last_thrower_id or not is_eligible_receiver(a) or z > catch_ceiling(a):
 			continue
 		var d: float = a.position.distance_to(bp)
 		var side := 0 if a.team == offense_team else 1
@@ -1105,17 +1225,24 @@ func _try_catch() -> bool:
 	var defender_contests: bool = best[1] != null and best[0] != null and best_d[1] <= best_d[0] + T.CONTEST_MARGIN
 	if best[0] == null and not defender_reaches:
 		return false
-	if defender_contests:
+	var short_pass := travel <= T.BATTED_PASS_MAX_TRAVEL
+	var lone_defender: bool = defender_reaches and best[0] == null
+	var pick_wins_contest := false
+	if defender_contests and not short_pass:
+		# At joint reach, let the nearer player get their best contact before judging the gap.
+		var closer := 0 if best_d[0] <= best_d[1] else 1
+		var next_z := z + ball.velocity.z / Tick.HZ
+		if next_z <= T.CATCH_MAX_HEIGHT and _pass_is_closing_on(bp, best[closer].position, best_d[closer]):
+			return false
+		pick_wins_contest = best_d[1] <= T.INT_RADIUS and best_d[0] - best_d[1] > T.CONTEST_MARGIN
+	if (defender_contests and not pick_wins_contest) or (lone_defender and short_pass):
 		_end_incomplete("breakup", {"by": best[1].id, "at": at})
 		return true
-	if defender_reaches and best[0] == null:
+	if lone_defender or pick_wins_contest:
 		var dfn: Athlete = best[1]
-		# Only a defender squarely at the ball intercepts; within normal reach he deflects it.
-		# Decide at the ball's closest approach: keep flying while it's still getting closer.
+		# A defender outside clean interception reach can still deflect at closest approach.
 		if best_d[1] > T.INT_RADIUS:
-			var next := bp + Vector2(ball.velocity.x, ball.velocity.y) / 60.0
-			var next_z := ball.position.z + ball.velocity.z / 60.0
-			if next.distance_to(dfn.position) < best_d[1] and next_z >= T.CATCH_MIN_HEIGHT:
+			if _pass_is_closing_on(bp, dfn.position, best_d[1]):
 				return false
 			_end_incomplete("breakup", {"by": dfn.id, "at": at})
 			return true
@@ -1134,13 +1261,18 @@ func _try_catch() -> bool:
 	event.emit("catch", {"by": rx.id, "at": at})
 	return true
 
+func _pass_is_closing_on(from: Vector2, player: Vector2, distance: float) -> bool:
+	var next := from + Vector2(ball.velocity.x, ball.velocity.y) / Tick.HZ
+	var next_z := ball.position.z + ball.velocity.z / Tick.HZ
+	return next_z >= T.CATCH_MIN_HEIGHT and next.distance_to(player) < distance
+
 ## Chaosball: nearest standing player in reach catches (own pass allowed); no breakups.
 func _try_catch_chaos() -> bool:
 	var bp := Vector2(ball.position.x, ball.position.y)
 	var best: Athlete = null
 	var best_d := T.CATCH_RADIUS
 	for a in athletes:
-		if not a.can_act() or (a.id == last_thrower_id and not rules["self_catch"]):
+		if not a.can_act() or (a.id == last_thrower_id and not rules["self_catch"]) or ball.position.z > catch_ceiling(a):
 			continue
 		var d: float = a.position.distance_to(bp)
 		if d <= best_d:
@@ -1176,16 +1308,14 @@ func _step_pass_clock(dt: float) -> void:
 		dead_ball_spot = spot
 		dead_ball_team = c.team
 		c.recover_t = T.FUMBLE_KNOCKDOWN
-		ball.state = Ball.State.DEAD
-		phase = Phase.DEAD
+		_end_play()
 		var data := {"carrier": c.id, "spot": spot, "team": c.team}
 		event.emit("explode", data)
 		event.emit("whistle", data)
 
 func _end_incomplete(reason: String, data: Dictionary) -> void:
 	ball.velocity = Vector3.ZERO
-	ball.state = Ball.State.DEAD
-	phase = Phase.DEAD
+	_end_play()
 	event.emit(reason, data)
 	data["reason"] = reason
 	event.emit("incomplete", data)
@@ -1205,6 +1335,10 @@ func enforce_neutral_zone(a: Athlete) -> bool:
 		a.velocity.y = maxf(a.velocity.y, 0.0)
 		return pushing
 	return false
+
+## True while the snap is travelling from the center to the QB (the ball is IN_FLIGHT then too).
+func snap_in_flight() -> bool:
+	return _snap_to_id >= 0
 
 func _step_snap(dt: float) -> void:
 	if _snap_to_id < 0 or ball.state != Ball.State.IN_FLIGHT:
@@ -1351,8 +1485,7 @@ func _kick_dead(reason: String, at: Vector2, extra: Dictionary) -> void:
 	kick_live = false
 	kick_free = false
 	ball.velocity = Vector3.ZERO
-	ball.state = Ball.State.DEAD
-	phase = Phase.DEAD
+	_end_play()
 	dead_ball_spot = at
 	dead_ball_team = offense_team
 	var data := {"spot": at, "team": offense_team, "kind": kick_play}
