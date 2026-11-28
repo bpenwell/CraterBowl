@@ -4,6 +4,9 @@ extends RefCounted
 
 const T := preload("res://src/sim/tuning.gd")
 const LAND_POSE_TIME := 0.18   # s of Jump_Land after touching down
+## Landing faster than this (yd/s) runs straight on: Jump_Land is a deep standing squat, and
+## played at run speed it slid along the turf for ~12 frames (#425).
+const LAND_SQUAT_MAX_SPEED := 2.5
 
 var vis_t := 0.0    # s left in the air as the view shows it; counts down at display rate
 var land_t := 0.0   # s left of the landing pose
@@ -14,7 +17,7 @@ var land_t := 0.0   # s left of the landing pose
 func update(athlete, delta: float) -> void:
 	var sim: float = athlete.jump_t if athlete != null and athlete.has_method("is_jumping") else 0.0
 	if sim <= 0.0:
-		if vis_t > 0.0:
+		if vis_t > 0.0 and (athlete == null or athlete.velocity.length() < LAND_SQUAT_MAX_SPEED):
 			land_t = LAND_POSE_TIME
 		vis_t = 0.0
 	elif vis_t <= 0.0 or absf(vis_t - sim) > 0.1:

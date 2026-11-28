@@ -2,6 +2,7 @@ extends "res://tests/visual/harness.gd"
 ## #379 jump: in live play the real Space key hops the controlled player. Three named
 ## frames counted from the key press (no wall clock): takeoff (Jump_Start, small lift),
 ## peak (the rig's looping "Jump" clip, body lifted ~JUMP_HEIGHT) and landing (Jump_Land right after touchdown).
+## A running landing skips the squat and goes back into the run (#425).
 ## Real main scene, real key path, real sim; the defense holds still and the player stands
 ## alone in the backfield. The camera settles before the jump (#124).
 
@@ -71,6 +72,30 @@ func _run() -> void:
 	check(is_zero_approx(view.body.position.y), "landing: no lift left (%.2f)" % view.body.position.y)
 	check(view.anim.current_animation == view._cur, "landing: the rig plays %s (%s)" % [view._cur, view.anim.current_animation])
 	await capture("jump_landing")
+
+	# #425: a running landing goes straight back into the run; the standing squat used to
+	# slide along the turf at run speed for ~12 frames.
+	game.input_override = Vector2(0, 1)
+	for i in 40:
+		await physics_frame
+	check(me.velocity.length() > view.jump_pose.LAND_SQUAT_MAX_SPEED, "running (%.1f yd/s)" % me.velocity.length())
+	_key(KEY_SPACE)
+	check(me.is_jumping(), "Space jumps on the run")
+	var squat := 0
+	var landed := -1
+	for i in 60:
+		await physics_frame
+		await process_frame
+		if not me.is_jumping() and landed < 0:
+			landed = i
+		if landed >= 0 and view._cur == "Jump_Land":
+			squat += 1
+		if landed >= 0 and i >= landed + 3:
+			break
+	check(landed >= 0, "lands")
+	check(squat == 0, "running landing: no standing squat (%d frames of Jump_Land)" % squat)
+	check(view._cur in ["Sprint", "Jog_Fwd", "Run"] or view._cur.begins_with("Jog") or view._cur.begins_with("Sprint"), "running landing: back in the run clip (%s)" % view._cur)
+	await capture("jump_running_landing")
 	finish()
 
 func _key(code: int) -> void:
