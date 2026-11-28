@@ -31,6 +31,7 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
 - `RUN_SPEED` 7.0 yd/s, `SPRINT_SPEED` 9.5 yd/s. Velocity is set directly from input each step: no acceleration
   ramp and no slide on stop. Diagonals are clamped to unit length.
 - W is "up the screen". On defense the camera faces the offense, so W moves you toward the line of scrimmage.
+- LT or L3 holds gamepad sprint. If both are held, sprint stays engaged until both are released (#404).
 - Sprint needs movement input. Stamina drains `STAMINA_DRAIN` (0.25/s, so 4 s from full) and regenerates
   `STAMINA_REGEN` (0.15/s) whenever you aren't sprinting. Hitting 0 locks sprint until stamina is back to
   `STAMINA_LOCKOUT_RECOVER` (25%). The HUD bar turns red below 25% or while locked.
@@ -87,6 +88,8 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
   10 yd end zones. One render unit is one yard (sim y maps to render -z).
 - Committed dive over contact tackles (no skill) or a tackle meter (breaks flow). Whiffing costs a second.
 - Exhaustion lockout makes sprint a decision, not a held button.
+- The input translator combines the controller's sprint inputs so movement rules can use one held state
+  for both keyboard and gamepad (#404).
 - Instant velocity replaced the original accel/decel model in the live-controls rework; `DECEL` now only
   shapes the post-dive slide.
 - Charges come from distance run, not time, so players can't bank moves standing in the huddle.

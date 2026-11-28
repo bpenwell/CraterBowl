@@ -16,6 +16,8 @@ const LEGACY_DIRS := ["godot/app_userdata/Fourth & Long"]   # relative to OS.get
 const MIGRATED_MARK := ".migrated"
 const VERSION_FILE := "res://VERSION"
 
+enum PadSource { STICK = 1, BUTTON = 2, TRIGGER = 4 }
+
 var options := {}                 # menu launch options (merged into main._cli_args)
 var settings := SettingsStore.new()
 var settings_path := SettingsStore.DEFAULT_PATH
@@ -25,7 +27,7 @@ var from_menu := false            # the current match was started from the menu 
 var last_match := {}              # post-game overview handed to the lobby (main.gd _finish_postgame)
 var _overlay: CanvasLayer
 var _xlate := {}             # pressed key -> default key (rebinding)
-var _pad_held := {}          # synthesized key -> held (gamepad)
+var _pad_held := {}          # synthesized key -> mask of held gamepad sources
 var _stick := Vector2.ZERO
 
 func _ready() -> void:
@@ -168,7 +170,7 @@ func _input(e: InputEvent) -> void:
 		if _xlate[e.keycode] != KEY_NONE:
 			synth_key(_xlate[e.keycode], e.pressed, e.echo)
 	elif e is InputEventJoypadButton and Controls.PAD_BUTTONS.has(e.button_index):
-		_pad(Controls.default_key(Controls.PAD_BUTTONS[e.button_index]), e.pressed)
+		_pad(Controls.default_key(Controls.PAD_BUTTONS[e.button_index]), e.pressed, PadSource.BUTTON)
 	elif e is InputEventJoypadMotion:
 		if e.axis == JOY_AXIS_LEFT_X or e.axis == JOY_AXIS_LEFT_Y:
 			if e.axis == JOY_AXIS_LEFT_X:
@@ -177,16 +179,19 @@ func _input(e: InputEvent) -> void:
 				_stick.y = e.axis_value
 			var want := Controls.stick_keys(_stick)
 			for k in want:
-				_pad(k, want[k])
+				_pad(k, want[k], PadSource.STICK)
 		elif Controls.PAD_TRIGGERS.has(e.axis):
-			_pad(Controls.default_key(Controls.PAD_TRIGGERS[e.axis]), e.axis_value > Controls.TRIGGER_ON)
+			_pad(Controls.default_key(Controls.PAD_TRIGGERS[e.axis]), e.axis_value > Controls.TRIGGER_ON, PadSource.TRIGGER)
 
-## Gamepad: emit a key event only on state change.
-func _pad(key: int, down: bool) -> void:
-	if _pad_held.get(key, false) == down:
+## Press on the first source and release after the last, including LT and L3 for sprint.
+func _pad(key: int, down: bool, source: PadSource) -> void:
+	var previous: int = _pad_held.get(key, 0)
+	var held := (previous | source) if down else (previous & ~source)
+	if previous == held:
 		return
-	_pad_held[key] = down
-	synth_key(key, down)
+	_pad_held[key] = held
+	if (previous != 0) != (held != 0):
+		synth_key(key, held != 0)
 
 ## Inject a key event the match code understands (default keys).
 static func synth_key(key: int, pressed: bool, echo: bool = false) -> void:
