@@ -340,7 +340,11 @@ func _show_fair_catch(on: bool) -> void:
 		fair_catch_label.visible = on
 
 func is_celebrating() -> bool:
-	return celebrate_t > 0.0
+	return celebrate_t > 0.0 and not _down()   # down: the ball stays in his hands until he is up
+
+## Diving, lying on the turf or in a tackle fall (live views).
+func _down() -> bool:
+	return athlete.is_diving() or athlete.is_grounded() or is_falling()
 
 ## Tackle impact reaction.
 func hit() -> void:
@@ -522,7 +526,7 @@ func sync() -> void:
 		_role = rn
 		var b: Array = BUILDS.get(rn, [1.0, 1.0])
 		scale = Vector3(b[0], b[1], (b[0] + 1.0) * 0.5)
-	if celebrate_t > 0.0:
+	if celebrate_t > 0.0 and not _down():   # down in the end zone: he gets up, then celebrates (#426)
 		celebrate_t = maxf(0.0, celebrate_t - Tick.DT)
 
 func _play(name: String, blend: float = BLEND, speed: float = 1.0) -> void:
@@ -585,7 +589,7 @@ func _process(delta: float) -> void:
 	body.position = Vector3(0.0, jump_pose.lift(), 0.0)
 	if live and athlete.is_spinning():
 		body.rotation.y = TAU * (1.0 - athlete.move_t / T.SPIN_TIME)
-	if live and celebrate_t > 0.0:
+	if live and celebrate_t > 0.0 and not _down():
 		var t := 1.5 - celebrate_t
 		match celebrate_kind:
 			"spin": body.rotation.y = t * TAU * 2.0
@@ -604,7 +608,7 @@ func _process(delta: float) -> void:
 		_shadow.global_position = ground_position() + Vector3(0, 0.02, 0) if _shadow_moved else global_position + Vector3(0, 0.02, 0)
 
 func _choose_anim(spd: float, down: bool) -> void:
-	if celebrate_t > 0.0:
+	if celebrate_t > 0.0 and not down:
 		_play({"hop": "Jump", "flip": "Roll"}.get(celebrate_kind, "Dance"))
 		return
 	if is_falling():
@@ -707,6 +711,7 @@ func place(p: Vector3, yaw: float) -> void:
 	if not _has_pose or p.distance_to(_cur_pos) > TELEPORT_DIST:
 		if is_falling():
 			fall.stop()   # next play: back on his feet
+		emote_t = 0.0   # a taunt from the dead ball doesn't carry into the next play (#426)
 		chase_sim = false
 		_prev_pos = p
 		_prev_yaw = yaw
