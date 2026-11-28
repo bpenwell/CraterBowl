@@ -46,8 +46,10 @@ player stands on stage while their stat card is up, and the hint is a backed pil
 - **Prone:** `PRONE_CLIP` (`Swim_Fwd`) held at `PRONE_AT` 0.5 s by seeking it every frame, with a
   `PRONE_BLEND` 0.25 s fall into it. The body lifts `PRONE_LIFT` 0.27 m so the lowest bone sits on
   the turf. Holding with `speed_scale` 0 also froze the cross-fade, so he stayed in the launch pose
-  1.5 m up. The lift eases in with `1 - exp(-k*dt)`.
-- **Get-up:** with `GETUP_AT` 0.5 s of recovery left, `GETUP_CLIP` (`Crouch_Idle`), a push-up to
+  1.5 m up. The lift is on at once (easing it in left the hands under the turf) and, through the
+  cross-fade from the launch (which pitches the arms down), rises further so the clip's lowest
+  hand or head stays `PRONE_TURF` 0.05 m up; it eases off for the get-up.
+- **Get-up:** once he slides slower than `GETUP_MAX_SPEED` (2 yd/s), or with `GETUP_LATEST` 0.25 s left anyway, and no earlier than `GETUP_AT` 0.5 s of recovery left, `GETUP_CLIP` (`Crouch_Idle`), a push-up to
   hands and knees, then locomotion. Not `LayToIdle`: it starts face-up and flips a prone body.
 - A replay knows the dive and lying bits but no recovery timer, so it times the get-up from when
   the lying bit came on (`DIVE_RECOVER` minus time down). Knockdowns that weren't dives keep the
@@ -57,7 +59,7 @@ player stands on stage while their stat card is up, and the hint is a backed pil
 - Tests: `tests/visual/dive_test.gd` measures every frame from F until he stands (captures
   `dive-launch`, `dive-prone`, `dive-getup`): belly-down in the air, pelvis 0.05-0.4 m off the turf
   while prone, hands ahead of the head and not through the turf, and the chest never facing the sky
-  (worst chest-front y 0.91 on the old slide chain, -0.22 now). `tests/game_flow.gd` frame
+  (worst chest-front y 0.91 on the old slide chain, -0.22 now). Every grounded frame also keeps the hands and head out of the turf (-0.35 m mid cross-fade before the lift fix) and the push-up starts once he has nearly stopped (integration audit: it started at 6-7 m/s). `tests/game_flow.gd` frame
   12690 checks the launch clip on the carrier dive.
 - A carrier's own dive that ends the play goes down through the tackle fall (#362) from the launch
   pose, so he rises through `LayToIdle` like a forward-falling tackled carrier.

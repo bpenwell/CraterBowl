@@ -55,6 +55,8 @@ func _run() -> void:
 	var worst_at := -1
 	var shot := {}
 	var standing := 0   # frames since the recovery ended
+	var sunk := 0.0     # deepest a hand or the head got under the turf while down
+	var getup_speed := -1.0   # how fast he still slid when the push-up started
 	for frame in MAX_FRAMES:
 		cam.global_position = start + Vector3(2.4, 1.4, 6.0)
 		cam.look_at(start + Vector3(2.4, 0.4, 0.0))
@@ -68,6 +70,10 @@ func _run() -> void:
 			worst_up = up
 			worst_at = frame
 		var clip: String = view.anim.assigned_animation
+		if wr.is_grounded():
+			sunk = minf(sunk, minf(minf(got.hand_r.origin.y, got.hand_l.origin.y), got.Head.origin.y))
+		if clip == "Crouch_Idle" and getup_speed < 0.0:
+			getup_speed = Vector2(view._vel.x, view._vel.z).length()
 		var at: float = view.anim.current_animation_position
 		if not shot.has("launch") and wr.is_diving() and at >= LAUNCH_AT:
 			shot.launch = true
@@ -92,6 +98,8 @@ func _run() -> void:
 			standing += 1
 			if standing > 20:   # the blend into Idle (BLEND 0.18 s) is done
 				break
+	check(sunk > -0.05, "hands and head never under the turf while down: deepest %.2f m" % sunk)
+	check(getup_speed >= 0.0 and getup_speed < view.GETUP_MAX_SPEED + 0.5, "the push-up starts once he has nearly stopped sliding (%.1f yd/s)" % getup_speed)
 	check(shot.size() == 3, "launch, prone and push-up all seen: %s" % str(shot.keys()))
 	check(not wr.is_grounded() and got.has("pelvis") and got.pelvis.origin.y > 0.7, "back on his feet")
 	check(worst_up < 0.3, "the chest never faces the sky from the dive to standing: worst y %.2f at frame %d" % [worst_up, worst_at])
