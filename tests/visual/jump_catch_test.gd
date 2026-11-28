@@ -40,9 +40,10 @@ func _run() -> void:
 	_key(game, KEY_SPACE)
 	check(receiver.is_jumping(), "Space jumps")
 	receiver.jump_t = T.JUMP_TIME * 0.5   # the top of the jump
-	# A descending pass over a standing receiver's reach, inside the jumper's.
-	var high: float = T.CATCH_MAX_HEIGHT + T.JUMP_HEIGHT * 0.7
-	world.ball.position = Vector3(10.0, 36.3, high)
+	# A descending pass over a standing receiver's reach, inside the jumper's, a yard to his
+	# side: measured from a standing chest it would still be 2.3 yd off and only part reached.
+	var high: float = T.CATCH_MAX_HEIGHT + T.JUMP_HEIGHT * 0.9
+	world.ball.position = Vector3(11.0, 36.3, high)
 	world.ball.velocity = Vector3(0.0, 12.0, -3.0)
 	game._render()
 	for view in game.views:
@@ -52,22 +53,29 @@ func _run() -> void:
 	game.camera.global_position = player.global_position + Vector3(3.6, 2.4, -2.6)
 	game.camera.look_at(player.global_position + Vector3(0, 1.9, 0.2))
 	for frame in 30:
+		player.jump_pose.vis_t = receiver.jump_t   # hold the view's jump clock at the top (the sim is frozen)
 		await process_frame
 	check(player.body.position.y > T.JUMP_HEIGHT * 0.9, "the body is at the top of the jump: %.2f" % player.body.position.y)
-	check(player.pose.catch_weight > 0.9 and player.pose.catch_reach > 0.9, "the jumper reaches for the pass (weight %.2f, reach %.2f)" % [player.pose.catch_weight, player.pose.catch_reach])
+	check(player.pose.catch_weight > 0.9 and player.pose.catch_reach > 0.95, "the jumper fully reaches for the pass (weight %.2f, reach %.2f)" % [player.pose.catch_weight, player.pose.catch_reach])
 	# Godot restores the clip pose after the modifiers run: read the hands as they are drawn.
 	var got := {}
 	var grab := func() -> void:
-		for b in ["hand_r", "hand_l"]:
+		for b in ["upperarm_r", "hand_r", "upperarm_l", "hand_l"]:
 			got[b] = sk.global_transform * sk.get_bone_global_pose(sk.find_bone(b)).origin
 	player.pose.modification_processed.connect(grab, CONNECT_ONE_SHOT)
 	player.anim.seek(0.2, true)
 	player.anim.pause()
+	player.jump_pose.vis_t = receiver.jump_t
 	await process_frame
+	player.jump_pose.vis_t = receiver.jump_t
 	await process_frame
 	var ball: Vector3 = game.ball_view.global_position
-	var near := minf(got.get("hand_r", Vector3.INF).distance_to(ball), got.get("hand_l", Vector3.INF).distance_to(ball))
-	check(near < 0.35, "a hand at the ball: %.2f m" % near)
+	var aim := -1.0   # the better arm: shoulder-to-hand against shoulder-to-ball
+	if got.size() == 4:
+		for side in ["_r", "_l"]:
+			var u: Vector3 = got["upperarm" + side]
+			aim = maxf(aim, (got["hand" + side] - u).normalized().dot((ball - u).normalized()))
+	check(aim > 0.95, "an arm reaches straight at the ball (cos %.2f)" % aim)
 	await capture("jump-catch")
 	check(world._try_catch() and world.carrier() == receiver, "the sim lets the jumper catch it %.1f yd up" % high)
 	finish()

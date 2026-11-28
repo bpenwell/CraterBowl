@@ -86,9 +86,10 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   leg animation. The arms use the standing reach’s shoulder and elbow limits, and blend into
   the carry after the catch (#360).
 - A receiver can catch at the top of a jump (#361): the sim's catch height rises with
-  `jump_height()` (up to `CATCH_MAX_HEIGHT + JUMP_HEIGHT`), and the view reaches from the lifted
-  chest, so a ball over a standing receiver's reach gets an arm straight up to it. Capture
-  `jump-catch` (`tests/visual/jump_catch_test.gd`).
+  `jump_height()` (up to `CATCH_MAX_HEIGHT + JUMP_HEIGHT`). The drawn body rides the jump, and the
+  reach (and the replay's catch bit) measures from the lifted chest, so a pass beside a jumper
+  is fully reached for, not part way as from a standing chest. Capture `jump-catch`
+  (`tests/visual/jump_catch_test.gd`).
 - Control stays on your own athlete after a catch or handoff. Bots run with the ball when they have it.
 
 ### Run game
