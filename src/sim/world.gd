@@ -836,7 +836,13 @@ func _step_blocks(prev: Array, inputs: Dictionary, dt: float) -> void:
 			if not _can_be_blocked(d):
 				continue
 			var to: Vector2 = d.position - b.position
-			if to.length() <= T.ENGAGE_DIST and b.facing.dot(to.normalized()) >= T.ENGAGE_FACING_DOT:
+			var dir := to.normalized()
+			# Face to face: the blocker faces the defender, and a moving defender is heading at
+			# the blocker (his velocity, not facing: a standing athlete's facing can be stale).
+			# No blocks from behind or on a pair running side by side the same way.
+			var d_spd: float = d.velocity.length()
+			var heading_in: bool = d_spd < T.ENGAGE_FOE_MOVING or d.velocity.dot(-dir) >= T.ENGAGE_FOE_HEADING_DOT * d_spd
+			if to.length() <= T.ENGAGE_DIST and b.facing.dot(dir) >= T.ENGAGE_FACING_DOT and heading_in:
 				b.engaged_with = d.id
 				d.engaged_with = b.id
 				b.engage_t = 0.0

@@ -86,6 +86,11 @@ const AI_DIVE_RANGE := 2.0
 const BODY_RADIUS := 0.45
 const ENGAGE_DIST := 1.0
 const ENGAGE_FACING_DOT := 0.3
+## A defender moving faster than ENGAGE_FOE_MOVING (yd/s) is blocked only when his heading . the
+## direction to the blocker reaches ENGAGE_FOE_HEADING_DOT (the blocker is ahead of his path, about
+## 78 deg either side): no blocks from behind or on a pair running side by side the same way.
+const ENGAGE_FOE_MOVING := 1.0
+const ENGAGE_FOE_HEADING_DOT := 0.2
 const BLOCK_DRIVE := 0.7       # fraction of defender displacement taken from blocker
 const BLOCK_HOLD := 1.5
 const BLOCK_IMMUNITY := 0.75
