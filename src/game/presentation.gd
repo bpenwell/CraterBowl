@@ -222,6 +222,8 @@ func on_event(n: String, d: Dictionary) -> void:
 			_pass_thrower = int(d.get("by", -1))
 			if _pass_thrower >= 0 and _pass_thrower < main.views.size():
 				main.views[_pass_thrower].throw_release()
+		"kick":   # the kicker's leg swing (#424)
+			if int(d.get("by", -1)) in range(main.views.size()): main.views[int(d["by"])].kick_swing()
 		"breakup":
 			_dust(_athlete_pos(int(d.get("by", -1))), 8)
 	overlay.on_event(n, d)
