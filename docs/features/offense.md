@@ -82,6 +82,9 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
 - Sideline catches use the receiver's ground position at contact (#338). The ball can be beyond the line
   while an in-bounds receiver completes the catch. A receiver standing outside the boundary is incomplete.
   A defender standing outside cannot complete an interception.
+- During an active Classic dive, an athlete reaching for a nearby pass keeps the slide’s torso and
+  leg animation. The arms use the standing reach’s shoulder and elbow limits, and blend into
+  the carry after the catch (#360).
 - Control stays on your own athlete after a catch or handoff. Bots run with the ball when they have it.
 
 ### Run game
@@ -133,6 +136,6 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   `tests/test_turnovers.gd` (interceptions), `tests/test_bots.gd`, `tests/game_flow.gd` (real J/Q/G/Space keys).
 
 ## Open issues
-- #9 C07 Catch rules: sideline catches (#338), reach input (#247), and dive/jump catches (#340)
+- #9 C07 Catch rules: reach input (#247) and jump catches (#361)
 - #10 C09 Offense depth: formations, audibles, hot routes, pre-snap motion
 - #11 C10 Throw readability: landing marker, aim-zoom (aim-zoom shipped as #109)
