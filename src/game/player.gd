@@ -16,6 +16,7 @@ const Emotes := preload("res://src/sim/emotes.gd")
 const Uniforms := preload("res://src/game/art/football_uniforms.gd")
 const RC := preload("res://src/game/render_cache.gd")
 const Pose := preload("res://src/game/art/athlete_pose.gd")
+const StumblePose := preload("res://src/game/art/stumble_pose.gd")
 const Ball := preload("res://src/sim/ball.gd")
 const TackleFall := preload("res://src/game/art/tackle_fall.gd")
 const Replay := preload("res://src/sim/replay.gd")
@@ -96,6 +97,7 @@ var mesh_i: MeshInstance3D
 var anim: AnimationPlayer
 var hand_r: Node3D
 var pose: Node              # athlete_pose.gd (null without a rig)
+var stumble: Node           # stumble_pose.gd, the layer after pose (#389; null without a rig)
 var ball_node: Node3D       # the ball while this athlete carries it (presentation.gd sets it)
 var look_node: Node3D       # the ball view: heads track it (#245; main.gd sets it)
 var _look_point := Vector3.ZERO   # smoothed world-space look target
@@ -176,6 +178,8 @@ func _ready() -> void:
 		pose = Pose.new()
 		pose.push_clip = anim.get_animation("Push") if anim and anim.has_animation("Push") else null
 		skel.add_child(pose)
+		stumble = StumblePose.new()
+		skel.add_child(stumble)   # after pose: modifiers run in child order
 		# Pin the ball after the clip and pose modifier have run, so it never trails the hand.
 		skel.skeleton_updated.connect(_pin_ball)
 	_open_gear = Node3D.new()
@@ -528,7 +532,7 @@ func sync() -> void:
 func _play(name: String, blend: float = BLEND, speed: float = 1.0) -> void:
 	if anim == null or not anim.has_animation(name):
 		return
-	anim.speed_scale = speed
+	anim.speed_scale = speed * (stumble.anim_scale() if stumble else 1.0)
 	if _cur != name:
 		_cur = name
 		anim.play(name, blend)
@@ -563,6 +567,10 @@ func _process(delta: float) -> void:
 		or (not live and (replay_flags & Replay.F_FAIR_CATCH) != 0)
 	if fc != fair_catch_shown:
 		_show_fair_catch(fc)
+	if stumble:
+		stumble.follow(athlete, replay_flags, delta)
+		stumble.free_r = 1.0 - maxf(pose.weight, pose.catch_weight)   # the ball arm stays tucked
+		stumble.free_l = 1.0 - maxf(pose.weight if pose.two_hand else 0.0, pose.catch_weight)
 	_push = false
 	if live:
 		_choose_anim(spd, down)

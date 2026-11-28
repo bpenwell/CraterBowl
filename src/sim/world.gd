@@ -777,6 +777,8 @@ func step(inputs: Dictionary, dt: float) -> void:
 		var inp: Dictionary = inputs.get(a.id, {})
 		if phase == Phase.DEAD and ball.holder_id == a.id:
 			a.jump_t = 0.0   # the dead ball's holder is frozen at the spot: land him there (#379)
+			a.stumble_t = 0.0   # ...and upright: his tackle fall shouldn't wear a frozen stumble (#389)
+			a.stumble_tier = Athlete.Stumble.NONE
 			continue
 		var human := is_human_input(inp)
 		step_athlete(a, inp.get("dir", Vector2.ZERO), inp.get("sprint", false), dt, inp.get("block", false))
@@ -799,6 +801,8 @@ func step(inputs: Dictionary, dt: float) -> void:
 	if phase == Phase.LIVE:
 		_track_progress(dt)
 		_check_tackles()
+	if phase == Phase.LIVE:
+		_check_trips()
 	if phase == Phase.LIVE and is_chaos():
 		_step_pass_clock(dt)
 	if phase == Phase.LIVE:
@@ -972,11 +976,62 @@ func _check_tackles() -> void:
 		return
 	for a in athletes:
 		if a.team != c.team and a.is_diving() and not c.is_spinning() and a.position.distance_to(c.position) <= T.TACKLE_REACH:
-			if _is_strip(a, c):
+			# A stumbling carrier is tackled, never stripped: stumbles let pursuers catch him from
+			# behind, where strips are likeliest, and phase 1 adds no fumbles (#389; off balance is #391).
+			if not c.is_stumbling() and _is_strip(a, c):
 				_fumble(c, a)
 			else:
 				_whistle("tackle", {"by": a.id, "carrier": c.id, "team": c.team})
 			return
+
+## Stumbles (#389): a runner crossing a diving or lying opponent loses speed for a moment.
+## Runs after _check_tackles, so a dive in reach still tackles; this only covers near misses
+## and bodies on the turf. Pure function of positions, velocities and stamina (no RNG).
+func _check_trips() -> void:
+	var c := carrier()
+	for r in athletes:
+		if not r.can_act() or r.is_spinning() or r.is_jumping() or r.trip_immune_t > 0.0 				or r.velocity.length() < T.TRIP_MIN_SPEED:
+			continue
+		var best := 0.0
+		var by: Athlete = null
+		for o in athletes:
+			if o.team != r.team and (o.is_diving() or o.is_grounded()):
+				var sev := trip_severity(r, o, r == c)
+				if sev > best:   # the worst contact wins, whatever the iteration order
+					best = sev
+					by = o
+		var tier := trip_tier(best)
+		# A lighter contact late in a stumble never downgrades it (a bobble would give the sprint back).
+		if tier != Athlete.Stumble.NONE and not (r.is_stumbling() and tier < r.stumble_tier):
+			r.trip(tier)
+			event.emit("stumble", {"id": r.id, "by": by.id, "tier": tier})
+
+## How hard runner `r` trips on opponent `o` (0 = no contact). A carrier is clipped by a dive
+## that just missed (TACKLE_REACH < d <= ANKLE_REACH, no longer closing); anyone trips over a body within
+## TRIP_REACH, worst when crossing it square-on. Tired legs trip harder.
+static func trip_severity(r: Athlete, o: Athlete, is_carrier: bool) -> float:
+	var d := r.position.distance_to(o.position)
+	var square := 0.0
+	if o.is_diving() and is_carrier:
+		# Only a dive that missed: one still closing in may reach TACKLE_REACH next tick and tackle.
+		if d <= T.TACKLE_REACH or d > T.ANKLE_REACH or (o.velocity - r.velocity).dot(r.position - o.position) > 0.0:
+			return 0.0
+		square = T.ANKLE_SQUARE
+	elif d <= T.TRIP_REACH:
+		var across := absf(r.velocity.normalized().cross(o.facing.normalized()))
+		square = lerpf(T.TRIP_SQUARE_ALONG, 1.0, across)
+	else:
+		return 0.0
+	var balance := lerpf(T.TRIP_BALANCE_TIRED, T.TRIP_BALANCE_FRESH, r.stamina)
+	return r.velocity.length() / T.SPRINT_SPEED * square * balance
+
+## Severity to tier. TRIP (>= 1.0: falls) is phase 3 (#391); until then it stays a STUMBLE.
+static func trip_tier(severity: float) -> int:
+	if severity >= T.STUMBLE_SEVERITY:
+		return Athlete.Stumble.STUMBLE
+	if severity >= T.BOBBLE_SEVERITY:
+		return Athlete.Stumble.BOBBLE
+	return Athlete.Stumble.NONE
 
 ## +1 if `team` attacks +y (the world offense, incl. the kicking team), -1 for the other team.
 func attack_sign(team: int) -> float:

@@ -76,6 +76,23 @@ const DIVE_RECOVER := 1.0
 const CONTACT_REACH := 1.0            # an opponent this close is "in contact" with the carrier
 const FORWARD_PROGRESS_GRACE := 0.3   # s the contact window stays open after contact breaks
 const FORWARD_PROGRESS_BANNER := 0.5  # yd credited back before the HUD calls it out
+# Stumble (#389): running into a diving or grounded opponent costs speed for a moment.
+# severity = runner speed / SPRINT_SPEED * square * balance; docs/features/movement.md "Stumbles".
+const TRIP_MIN_SPEED := 4.0       # yd/s: slower runners (and engaged blockers) never trip
+const ANKLE_REACH := 1.35         # a diving opponent between TACKLE_REACH and this clips the carrier
+const TRIP_REACH := 0.75          # BODY_RADIUS + 0.3: running through a body on the turf
+const TRIP_SQUARE_ALONG := 0.6    # square factor running along a body; 1.0 crossing it square-on
+const ANKLE_SQUARE := 0.6         # an ankle tap is glancing by definition
+const TRIP_BALANCE_TIRED := 1.15  # balance factor at 0 stamina...
+const TRIP_BALANCE_FRESH := 0.9   # ...and at full stamina
+const BOBBLE_SEVERITY := 0.25     # tiers: below this nothing happens
+const STUMBLE_SEVERITY := 0.6     # 1.0+ is a TRIP (falls, #391); until then it is a STUMBLE
+const BOBBLE_FLOOR := 0.75        # speed multiplier at the start of a bobble...
+const BOBBLE_TIME := 0.25         # ...easing back to 1 over this many s
+const STUMBLE_FLOOR := 0.45
+const STUMBLE_TIME := 0.6         # no sprint for the whole stumble
+const STUMBLE_LOCK := 0.2         # s after a STUMBLE starts with no spin/dash/dive/jump
+const TRIP_IMMUNE := 0.5          # s after a trip with no new one: one pile, one stumble
 
 # Q / E spin: the evade spin (SPIN_TIME/SPIN_SPEED above) angled this far off facing
 const SPIN_ANGLE := 35.0        # degrees

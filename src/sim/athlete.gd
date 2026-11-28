@@ -2,6 +2,9 @@ extends "res://src/sim/player_motion.gd"
 ## An athlete on the field: motion + identity + dive/recover state.
 
 enum Role { QB, C, WR, RB, LB, CB, S, OL, DL }
+## Stumble tiers (#389). Wire and replay values: keep the order. TRIP (falls) is phase 3 (#391).
+enum Stumble { NONE, BOBBLE, STUMBLE, TRIP }
+const Tick := preload("res://src/sim/tick.gd")
 
 var id: int = 0
 var team: int = 0
@@ -25,6 +28,9 @@ var jump_chain_t := 0.0   # s left after landing in which another jump counts as
 var spin_dir := 0          # -1 left, +1 right: which way the last spin turned (visual)
 var emote_cd := 0.0        # taunt rate limit (cosmetic)
 var set_lock := false    # pre-snap: held in stance until break_stance (defense)
+var stumble_t := 0.0       # s left of a stumble (#389): speed eases back to full as it runs out
+var stumble_tier := 0      # Stumble tier while stumble_t > 0
+var trip_immune_t := 0.0   # s after a trip in which no new one starts (host-only, not on the wire)
 
 func _init(p_id: int = 0, p_team: int = 0, p_role: Role = Role.WR, start: Vector2 = Vector2.ZERO, f = null) -> void:
 	super(start, f)
@@ -57,8 +63,35 @@ func face(dir: Vector2) -> void:
 	if dir.length_squared() > 0.0001:
 		facing = dir.normalized()
 
+## Length of a stumble of this tier, in s.
+static func stumble_time(tier: int) -> float:
+	return T.BOBBLE_TIME if tier == Stumble.BOBBLE else T.STUMBLE_TIME
+
+func is_stumbling() -> bool:
+	return stumble_t > 0.0
+
+## Speed multiplier from a stumble: the tier's floor right after the trip, easing back to 1.
+func stumble_mult() -> float:
+	if stumble_t <= 0.0:
+		return 1.0
+	var lo := T.BOBBLE_FLOOR if stumble_tier == Stumble.BOBBLE else T.STUMBLE_FLOOR
+	return lerpf(lo, 1.0, smoothstep(0.0, 1.0, 1.0 - stumble_t / stumble_time(stumble_tier)))
+
+## No spin, dash, dive or jump for STUMBLE_LOCK after a STUMBLE starts. Compared in whole ticks:
+## the host's countdown is an accumulated float, the client's is ticks/60 from the snapshot.
+func stumble_locked() -> bool:
+	return stumble_tier >= Stumble.STUMBLE and roundi(stumble_t * Tick.HZ) > roundi((T.STUMBLE_TIME - T.STUMBLE_LOCK) * Tick.HZ)
+
+## Start a stumble (World._check_trips decides the tier). A STUMBLE cancels a dash.
+func trip(tier: int) -> void:
+	stumble_tier = tier
+	stumble_t = stumble_time(tier)
+	trip_immune_t = T.TRIP_IMMUNE
+	if tier >= Stumble.STUMBLE and move_t > 0.0 and not spin_move:
+		move_t = 0.0
+
 func start_move(spin: bool, direction: Vector2) -> bool:
-	if move_charge < 1.0 or move_t > 0.0 or not can_act() or is_jumping():
+	if move_charge < 1.0 or move_t > 0.0 or not can_act() or is_jumping() or stumble_locked():
 		return false
 	if not direction.is_zero_approx():
 		facing = direction.normalized()
@@ -90,7 +123,7 @@ func jump_cost() -> float:
 ## Hop with the current velocity. Not mid-move, mid-air, in a block or without the stamina.
 func start_jump() -> bool:
 	var cost := jump_cost()
-	if not can_act() or move_t > 0.0 or is_jumping() or engaged_with >= 0 or stamina < cost:
+	if not can_act() or move_t > 0.0 or is_jumping() or engaged_with >= 0 or stamina < cost or stumble_locked():
 		return false
 	stamina -= cost
 	blocking = false
@@ -98,7 +131,7 @@ func start_jump() -> bool:
 	return true
 
 func start_dive() -> bool:
-	if not can_act() or move_t > 0.0 or is_jumping():
+	if not can_act() or move_t > 0.0 or is_jumping() or stumble_locked():
 		return false
 	blocking = false
 	dive_t = T.DIVE_TIME
@@ -114,12 +147,26 @@ func reset_state() -> void:
 	move_t = 0.0
 	jump_t = 0.0
 	jump_chain_t = 0.0
+	stumble_t = 0.0
+	stumble_tier = Stumble.NONE
+	trip_immune_t = 0.0
 	velocity = Vector2.ZERO
 
 func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false, speed_scale := 1.0) -> void:
 	blocking = wants_block and can_act() and move_t <= 0.0 and not is_jumping()
 	emote_cd = maxf(0.0, emote_cd - dt)
 	jump_chain_t = maxf(0.0, jump_chain_t - dt)
+	# Stumble (#389): this tick runs at the multiplier from before the countdown, so the first
+	# tick after a trip is at the tier's floor and the last one lands back on full speed.
+	var stumble_scale := stumble_mult()
+	if stumble_tier >= Stumble.STUMBLE and stumble_t > 0.0:
+		wants_sprint = false
+	trip_immune_t = maxf(0.0, trip_immune_t - dt)
+	if stumble_t > 0.0:
+		stumble_t -= dt
+		if stumble_t <= 0.0001:   # float countdown: never leave a sliver of a stumble behind
+			stumble_t = 0.0
+			stumble_tier = Stumble.NONE
 	if dive_t > 0.0:
 		dive_t -= dt
 		velocity = facing * (T.DIVE_SPEED * speed_scale)
@@ -143,9 +190,9 @@ func step(input: Vector2, wants_sprint: bool, dt: float, wants_block := false, s
 			jump_chain_t = T.JUMP_CHAIN_WINDOW
 		return
 	if move_t > 0.0:
-		velocity = facing * ((T.SPIN_SPEED if spin_move else T.DASH_SPEED) * speed_scale)
+		velocity = facing * ((T.SPIN_SPEED if spin_move else T.DASH_SPEED) * speed_scale * stumble_scale)
 		position = field.clamp_playable(position + velocity * dt)
 		move_t = maxf(0.0, move_t - dt)
 		last_sprinting = false
 		return
-	super.step(input, wants_sprint, dt, blocking, speed_scale)
+	super.step(input, wants_sprint, dt, blocking, speed_scale * stumble_scale)

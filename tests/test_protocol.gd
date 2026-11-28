@@ -55,6 +55,39 @@ func test_snapshot_round_trip() -> void:
 	assert_eq(b.downs.down, 3, "down")
 	assert_true(bytes.size() < 1400, "fits one MTU-ish packet (%d bytes)" % bytes.size())
 
+## #389: a stumble's tier rides in the flags int (bits 6-7, beside the jump time in 8-17) and its
+## ticks left in the team int (bits 8-13): exact on the client, so its prediction slows down the way
+## the host's does.
+func test_snapshot_round_trip_stumble() -> void:
+	var a := _match()
+	a.world.snap()
+	var plain := var_to_bytes(P.encode_snapshot(a, 7)).size()
+	var s: Athlete = a.world.athletes[3]
+	s.stumble_tier = Athlete.Stumble.STUMBLE
+	s.stumble_t = 24.0 / 60.0
+	s.jump_t = 0.45                     # both at once: the bit fields must not overlap
+	var bob: Athlete = a.world.athletes[10]
+	bob.stumble_tier = Athlete.Stumble.BOBBLE
+	bob.stumble_t = 1.0 / 60.0
+	var bytes := var_to_bytes(P.encode_snapshot(a, 7))
+	assert_eq(bytes.size(), plain, "a stumble costs no snapshot bytes")
+	var b := _match()
+	P.apply_snapshot(b, bytes_to_var(bytes))
+	var s2: Athlete = b.world.athletes[3]
+	assert_eq(s2.stumble_tier, Athlete.Stumble.STUMBLE, "tier")
+	assert_eq(roundi(s2.stumble_t * 60.0), 24, "ticks left, exact")
+	assert_near(s2.jump_t, 0.45, 0.001, "jump time untouched by the stumble bits")
+	assert_eq(b.world.athletes[10].stumble_tier, Athlete.Stumble.BOBBLE, "bobble tier")
+	assert_eq(roundi(b.world.athletes[10].stumble_t * 60.0), 1, "last tick")
+	for i in b.world.athletes.size():
+		if i != 3 and i != 10:
+			assert_eq(b.world.athletes[i].stumble_t, 0.0, "nobody else stumbles (%d)" % i)
+	s.stumble_t = 0.0
+	s.stumble_tier = Athlete.Stumble.NONE
+	P.apply_snapshot(b, bytes_to_var(var_to_bytes(P.encode_snapshot(a, 8))))
+	assert_eq(s2.stumble_t, 0.0, "stumble over: cleared on the client")
+	assert_eq(s2.stumble_tier, Athlete.Stumble.NONE, "tier cleared")
+
 func test_snapshot_carries_and_clears_the_crossing_flag() -> void:
 	var host := _match()
 	var remote := _match()

@@ -2,6 +2,7 @@ extends RefCounted
 ## Wire protocol: snapshot codec, input sanitizing, authoritative action routing. Pure.
 
 const T := preload("res://src/sim/tuning.gd")
+const Tick := preload("res://src/sim/tick.gd")
 const Routes := preload("res://src/sim/routes.gd")
 const World := preload("res://src/sim/world.gd")
 const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
@@ -13,7 +14,11 @@ const SPIN_FLAG := 16
 const SPIN_LEFT_FLAG := 32   # spin turned left (visual side)
 const PASS_THROWN_FLAG := 1   # pass flags, separate from athlete flags
 const CROSSED_LOS_FLAG := 2
-const JUMP_SHIFT := 8          # flags bits 8+: jump time left in ms (0 = on the ground, #379)
+const JUMP_SHIFT := 8          # flags bits 8-17: jump time left in ms (0 = on the ground, #379)
+const JUMP_MASK := 0x3FF       # 10 bits: up to 1023 ms (JUMP_TIME is 600)
+const STUMBLE_TIER_SHIFT := 6  # flags bits 6-7: Athlete.Stumble tier (#389)
+const TEAM_STUMBLE_SHIFT := 8  # team int bits 8-13: stumble ticks left (exact, so prediction matches;
+const TEAM_STUMBLE_MASK := 63  # flags bits 18+ are #397's dive/ground ticks). Clients never read the team.
 const Emotes := preload("res://src/sim/emotes.gd")
 
 static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
@@ -27,8 +32,12 @@ static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
 		flags |= (BLOCK_FLAG if ath.blocking else 0) | (SPIN_FLAG if ath.is_spinning() else 0)
 		if ath.is_spinning() and ath.spin_dir < 0:
 			flags |= SPIN_LEFT_FLAG
-		flags |= roundi(ath.jump_t * 1000.0) << JUMP_SHIFT
-		r.append_array([ath.role, flags, ath.team])
+		flags |= mini(roundi(ath.jump_t * 1000.0), JUMP_MASK) << JUMP_SHIFT
+		var stumble_ticks := 0
+		if ath.stumble_t > 0.0:
+			flags |= ath.stumble_tier << STUMBLE_TIER_SHIFT
+			stumble_ticks = mini(roundi(ath.stumble_t * Tick.HZ), TEAM_STUMBLE_MASK)
+		r.append_array([ath.role, flags, ath.team | (stumble_ticks << TEAM_STUMBLE_SHIFT)])
 		moves.append_array([ath.move_charge, ath.move_t])
 	var b = w.ball
 	var pass_flags := (PASS_THROWN_FLAG if w.forward_pass_thrown else 0) | (CROSSED_LOS_FLAG if w.ball_crossed_los else 0)
@@ -157,7 +166,9 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 			ath.move_charge = moves[i * 2]
 			ath.move_t = moves[i * 2 + 1]
 		ath.spin_dir = -1 if flags & SPIN_LEFT_FLAG else 1
-		ath.jump_t = minf(float(flags >> JUMP_SHIFT) / 1000.0, T.JUMP_TIME)
+		ath.jump_t = minf(float((flags >> JUMP_SHIFT) & JUMP_MASK) / 1000.0, T.JUMP_TIME)
+		ath.stumble_tier = (flags >> STUMBLE_TIER_SHIFT) & 3
+		ath.stumble_t = float((r[i * 3 + 2] >> TEAM_STUMBLE_SHIFT) & TEAM_STUMBLE_MASK) / Tick.HZ if ath.stumble_tier != 0 else 0.0
 	var b: PackedFloat32Array = s["b"]
 	w.ball.state = int(b[0])
 	w.ball.holder_id = int(b[1])
@@ -353,7 +364,7 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 ## Wire/sim compatibility version. Bump it in the same PR as any change to the wire format
 ## (message keys or fields, snapshot layout, action shapes) or to sim rules a host and client
 ## must agree on (src/sim). Rule and reasons: docs/design/netcode.md "Version handshake".
-const VERSION := 12
+const VERSION := 13
 const VERSION_FILE := "res://VERSION"
 const VERSION_FLAG := "--protocol-version="   # debug: pretend to be another version (net_test.sh)
 

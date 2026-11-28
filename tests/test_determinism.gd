@@ -35,6 +35,8 @@ func _run(size: int, mode: String, seconds: float) -> Array:
 			for a in w.athletes:
 				s.append(a.position)
 				s.append(a.velocity)
+				s.append(a.stumble_t)   # #389: stumble state must replay bit-identically too
+				s.append(a.stumble_tier)
 			prints.append(var_to_str(s))
 	return prints
 
