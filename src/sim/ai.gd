@@ -119,7 +119,7 @@ func think(world, human_ids: Array) -> Dictionary:
 		and c.position.y <= world.los_y and not world.forward_pass_thrown and (world.is_chaos() or not world.ball_crossed_los) \
 		and (not run_call or exchange)
 	var landing := _landing_point(world) if in_air else Vector2.INF
-	if in_air:
+	if in_air and not world.kick_live and not world.is_chaos():   # kick catches ignore the jump; chaos walls bend the path
 		_contest_jumps(world, human_ids)
 	if world.kick_live:
 		return _kick_coverage(world, human_ids, landing)
@@ -277,7 +277,7 @@ func _contest_jumps(world, human_ids: Array) -> void:
 	if z <= T.CATCH_MAX_HEIGHT or z > T.CATCH_MAX_HEIGHT + T.JUMP_HEIGHT:
 		return
 	var bp := Vector2(b.position.x + b.velocity.x * t, b.position.y + b.velocity.y * t)
-	if not defense_enabled:
+	if not defense_enabled or bp.distance_to(world.throw_origin) < T.MIN_PASS_TRAVEL:
 		return
 	for a in world.athletes:
 		if a.team == world.offense_team or human_ids.has(a.id):

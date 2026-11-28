@@ -62,7 +62,8 @@ catch rules). There is one difficulty level. A player who disconnects frees thei
   above a standing catch (`CATCH_MAX_HEIGHT` 2.6 yd) but under his jump's reach (+`JUMP_HEIGHT` 0.9 yd) and within
   `CATCH_RADIUS + CONTEST_MARGIN` of where his current velocity carries him, so he tops out as the ball arrives: a DL
   bats a throw over his head, an LB/CB picks a lob before turning to chase it. Bot receivers don't jump: a ball that high
-  over a receiver is meant for someone deeper. No jumps for kicks.
+  over a receiver is meant for someone deeper. No jumps for kicks (their catch ignores the jump), in Chaosball (walls
+  bend the ball's path), or before the ball is catchable (`MIN_PASS_TRAVEL` from the throw).
 
 ### Chaosball
 - A carrier passes to the most open teammate when an opponent is within `AI_CHAOS_PRESSURE` (3.5 yd) or the pass clock

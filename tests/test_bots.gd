@@ -175,7 +175,7 @@ func _pass_over(w, d, z: float) -> void:
 	w.ball.hold(-1)
 	w.ball.state = w.ball.State.IN_FLIGHT
 	w.ball.position = Vector3(from.x, from.y, T.RELEASE_HEIGHT)
-	w.ball.velocity = Vector3(0, 10.0 / t, (z - T.RELEASE_HEIGHT + 0.5 * w.gravity() * t * t) / t)
+	w.ball.velocity = Vector3(0, 6.0 / t, (z - T.RELEASE_HEIGHT + 0.5 * w.gravity() * t * t) / t)
 	w.forward_pass_thrown = true
 	w.last_thrower_id = w.find_role(0, R.QB).id
 	w.throw_origin = from
