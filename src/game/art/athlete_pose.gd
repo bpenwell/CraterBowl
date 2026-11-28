@@ -81,6 +81,13 @@ const NECK_SHARE := 0.4   # the rest of the turn is the head's
 
 ## Bones the block push takes from the Push clip (spine lean, both arms); hips, legs, head
 ## and fingers stay on the playing clip. Track paths are relative to the AnimationPlayer root.
+## Kick (#424): no UAL clip kicks, so the right leg swings procedurally on top of the playing
+## clip, about the athlete's left-right axis. KICK_CURVE: [phase, thigh forward deg, knee bend
+## deg], linear between rows. It starts with the leg already swinging through (the sim launches
+## the ball on the kick event), meets the ball at ~0.2, follows through, then settles.
+const KICK_BLEND_IN := 0.08   # of the swing (0.04 s): eases off the clip into the curve
+const KICK_CURVE := [[0.0, -20.0, 75.0], [0.2, 80.0, 5.0], [0.4, 100.0, 25.0], [1.0, 0.0, 0.0]]
+
 const PUSH_BONES := ["spine_02", "spine_03", "clavicle_l", "upperarm_l", "lowerarm_l", "hand_l",
 	"clavicle_r", "upperarm_r", "lowerarm_r", "hand_r"]
 const PUSH_TRACK_PREFIX := "Armature/Skeleton3D:"
@@ -94,6 +101,7 @@ var catch_weight := 0.0           # 0 = no catch pose, 1 = full stance/reach
 var catch_target := Vector3.ZERO  # the ball, skeleton space
 var catch_reach := 0.0            # 0 = ready stance, 1 = hands on the ball
 var catch_twist := true           # keep the slide clip's torso during a diving reach
+var kick_phase := -1.0            # 0..1 through the kick swing (player.gd), < 0: no kick
 var push_clip: Animation          # the Push clip (player.gd sets it); null: no push layer
 var push_weight := 0.0            # 0 = playing clip, 1 = Push clip on the upper body
 var push_time := 0.0              # s into push_clip
@@ -101,6 +109,7 @@ var _push_tracks := []            # [bone id, rotation track id] per PUSH_BONES 
 var _push_pelvis := [-1, -1]      # pelvis bone id, Push's pelvis rotation track
 var _bones := {}
 var _fingers := {}     # "_r"/"_l" -> finger bone ids (joints 01-03)
+var _kick_bones := [-1, -1]   # thigh_r, calf_r (the kick only: a rig without them keeps the other layers)
 var _rig_ok := false   # every bone in _bones exists (checked once: no per-frame allocation)
 ## Maps the clip's chest-side bone poses to the twisted ones for this update. The twist is
 ## written last, so no bone is ever read after one of its parents was written.
@@ -111,11 +120,12 @@ func _process_modification() -> void:
 	apply(get_skeleton())
 
 func apply(sk: Skeleton3D) -> void:
-	if sk == null or (weight <= 0.0 and look_weight <= 0.0 and catch_weight <= 0.0 and push_weight <= 0.0):
+	if sk == null or (weight <= 0.0 and look_weight <= 0.0 and catch_weight <= 0.0 and push_weight <= 0.0 and kick_phase < 0.0):
 		return
 	if _bones.is_empty():
 		for n in ["spine_02", "spine_03", "neck_01", "Head", "upperarm_r", "lowerarm_r", "hand_r", "upperarm_l", "lowerarm_l", "hand_l"]:
 			_bones[n] = sk.find_bone(n)
+		_kick_bones = [sk.find_bone("thigh_r"), sk.find_bone("calf_r")]
 		for side in ["_r", "_l"]:
 			_fingers[side] = []
 			for f in FINGERS:
@@ -134,6 +144,8 @@ func apply(sk: Skeleton3D) -> void:
 		return   # rig without these bones: keep the clip
 	if push_weight > 0.0:
 		_push(sk)
+	if kick_phase >= 0.0 and _kick_bones[1] >= 0 and _kick_bones[0] >= 0:
+		_kick(sk)
 	# The arms do one job: the stronger of catching and carrying (they cross over at the catch).
 	var catching := catch_weight > weight
 	_pre = Transform3D()
@@ -178,6 +190,30 @@ func _push(sk: Skeleton3D) -> void:
 		if bt == _push_tracks[0]:
 			q = (lean * q).normalized()
 		sk.set_bone_pose_rotation(bt[0], sk.get_bone_pose_rotation(bt[0]).slerp(q, push_weight))
+
+## Thigh forward and knee bend (deg) at kick phase p (KICK_CURVE).
+static func kick_angles(p: float) -> Vector2:
+	for i in KICK_CURVE.size() - 1:
+		var a: Array = KICK_CURVE[i]
+		var b: Array = KICK_CURVE[i + 1]
+		if p <= b[0]:
+			var k := smoothstep(0.0, 1.0, clampf((p - a[0]) / (b[0] - a[0]), 0.0, 1.0))
+			return Vector2(lerpf(a[1], b[1], k), lerpf(a[2], b[2], k))
+	return Vector2.ZERO
+
+## Swing the right leg (#424) about skeleton +X (the athlete's left; +Z is forward, so a
+## forward swing turns by a negative angle). The calf follows the thigh, less the knee bend.
+func _kick(sk: Skeleton3D) -> void:
+	var th: int = _kick_bones[0]
+	var ca: int = _kick_bones[1]
+	var a := kick_angles(kick_phase) * clampf(kick_phase / KICK_BLEND_IN, 0.0, 1.0)   # no one-frame snap off the clip
+	var gt := sk.get_bone_global_pose(th).basis
+	var gc := sk.get_bone_global_pose(ca).basis
+	var parent := sk.get_bone_global_pose(sk.get_bone_parent(th)).basis
+	var nt := Basis(Vector3.RIGHT, -deg_to_rad(a.x)) * gt
+	var nc := Basis(Vector3.RIGHT, -deg_to_rad(a.x - a.y)) * gc
+	sk.set_bone_pose_rotation(th, (parent.inverse() * nt).orthonormalized().get_rotation_quaternion())
+	sk.set_bone_pose_rotation(ca, (nt.inverse() * nc).orthonormalized().get_rotation_quaternion())
 
 ## The catch frame: at the chest, facing the chest's heading, with the rig's +Y (world) up.
 static func _upright(chest: Transform3D) -> Transform3D:

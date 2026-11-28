@@ -34,6 +34,7 @@ const MODEL_SCALE := 1.08
 const BLEND := 0.18
 ## Carry pose blend rate (1/s): about 0.2 s to tuck the ball in or out.
 const CARRY_K := 14.0
+const KICK_TIME := 0.5   # s of the kick swing (athlete_pose.gd KICK_CURVE), from the kick event (#424)
 ## Head look smoothing (1/s): the look point trails a fast ball a little, like eyes do.
 const LOOK_K := 10.0
 ## Heads only turn when the athlete is big enough on screen to see it: the camera view's
@@ -84,6 +85,7 @@ var celebrate_kind := "none"
 var celebrate_t := 0.0
 var emote_id := ""
 var emote_t := 0.0
+var kick_t := -1.0   # s into the kick swing; < 0: not kicking
 var spin_vis_t := 0.0      # view-side spin animation (works for net + local)
 var spin_vis_side := 0
 var jump_pose := preload("res://src/game/jump_pose.gd").new()   # view-side jump (#379)
@@ -293,6 +295,10 @@ func apply_look(lk: Dictionary) -> void:
 		l.modulate = trim_color
 		l.outline_modulate = color.darkened(0.55) if trim_color.get_luminance() > 0.5 else Color(0.95, 0.95, 0.95)
 
+## The kick event: swing the right leg through the ball (#424).
+func kick_swing() -> void:
+	kick_t = 0.0
+
 func celebrate(kind: String) -> void:
 	if kind != "none":
 		celebrate_kind = kind
@@ -350,6 +356,7 @@ func hit() -> void:
 ## velocity, contact = the velocity the hit drives the contact point to (yd/s, world),
 ## contact_h = the hit's height (yd). fumble: the ball came out, so he scrambles up sooner.
 func tackled(run: Vector3, impulse: Vector3, point: Vector3, fumble := false) -> void:
+	kick_t = -1.0   # the fall captures the body as it is: not mid-swing
 	if pose == null or _skel == null:
 		hit()
 		return
@@ -549,6 +556,10 @@ func _process(delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, atan2(-_vel.x, -_vel.z), clampf(delta * 14.0, 0.0, 1.0))
 	_hit_t = maxf(0.0, _hit_t - delta)
 	emote_t = maxf(0.0, emote_t - delta)
+	if kick_t >= 0.0:
+		kick_t = kick_t + delta if kick_t + delta < KICK_TIME else -1.0
+	if pose:
+		pose.kick_phase = kick_t / KICK_TIME if kick_t >= 0.0 else -1.0
 	if bubble:
 		bubble.visible = emote_t > 0.0
 		bubble.modulate.a = clampf(emote_t / 0.3, 0.0, 1.0)
