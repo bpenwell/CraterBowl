@@ -24,6 +24,7 @@ func _physics_process(dt: float) -> bool:
 		if not set_quarters:
 			_key(KEY_Q)   # #130: no-op now (halves are gone); the client checks the lobby stayed quarters
 			_key(KEY_H)   # 2.5 -> 3-min quarters
+			_key(KEY_I)   # #108: disable the pass landing marker in the hosted match
 			set_quarters = true
 		return false
 	if not reported_ids:   # match started: the joiner's install id came in through the lobby (#102)

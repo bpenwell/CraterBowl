@@ -1135,6 +1135,8 @@ func lobby_key(keycode: int) -> void:
 		KEY_7: changed = lobby.set_setting(LOCAL_PLAYER, "size", 7)
 		KEY_M:
 			changed = lobby.set_setting(LOCAL_PLAYER, "mode", "chaosball" if lobby.settings.get("mode", "classic") == "classic" else "classic")
+		KEY_I:
+			changed = lobby.set_setting(LOCAL_PLAYER, "pass_marker", not lobby.settings["pass_marker"])
 		KEY_H:
 			var choices := Lobby.QUARTER_MINUTES
 			var i := (choices.find(lobby.settings["quarter_minutes"]) + 1) % choices.size()
@@ -1959,7 +1961,7 @@ func _process(delta: float) -> void:
 		if is_client() and net.refused_reason != "":
 			hud.text = "COULDN'T JOIN THE MATCH\n%s%s" % [net.refused_reason, "" if net.version_refused else "\n\nAsk the host for a bigger match, or try again later."]
 			return
-		var host_keys := "\nHost: [3/5/7] size   [M] mode   [H] quarter length" if is_server() else ""
+		var host_keys := "\nHost: [3/5/7] size   [M] mode   [H] quarter length   [I] pass marker" if is_server() else ""
 		var lobby_text := "PRIVATE MATCH LOBBY   Invite code: %s\n%s\n[Enter] ready. Starts when everyone is ready.%s" % [lobby.code, lobby.summary(), host_keys]
 		if is_server() and lobby.notice != "":
 			lobby_text += "\n" + lobby.notice

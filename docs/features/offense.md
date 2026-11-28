@@ -56,6 +56,8 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   so the longest throws zoom in furthest. It eases (`1 - exp(-8·dt)`) and returns to 65° on release
   (`main.gd aim_zoom_fov`, `AIM_ZOOM_FOV`).
 - A ground reticle and a 24-dot arc preview show where the ball will come down while you can throw.
+- Once a pass is in flight, eligible receivers and defenders see a ground marker at the predicted landing point
+  (#108). The thrower sees the pre-throw preview. A private-lobby host can toggle the in-flight pass marker.
 - **Other carriers** (an RB behind the line after a handoff) use the orbit camera: mouse X orbits, mouse Y sets the aim
   distance (2 to 65 yd). Left click / **J** throws on press at a fixed `PLAYER_PASS_POWER` (0.68, about 24 yd/s); the
   solver picks the flattest angle that crosses the aim point at `CATCH_HEIGHT` (1.1 yd). Hold **Ctrl** (gamepad RB) for
@@ -95,8 +97,8 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   first-person passing view and aim preview. Retreating behind the line keeps the play live as a run. Disabling the
   throw at the input and sim gates gives the runner immediate feedback and avoids a separate penalty ruling.
 - The snap is a short visible flight, not a teleport, so its timing is readable.
-- Aim point plus solved arc over homing passes (no skill) or golf-style angle/power (too fiddly). The arc preview
-  makes it learnable.
+- Aim point plus solved arc over homing passes or golf-style angle/power. The aim arc previews the throw. The
+  in-flight marker calls the same ballistic time-to-height helper with the live ball's position and velocity.
 - Charged power was removed in the live-controls rework, then came back for the QB with Gridiron-style POV aiming:
   look sets direction and height, the hold sets distance. Non-QB carriers still throw on press at fixed power.
   POV throws add `THROW_INHERIT` (30%) of the QB's velocity (`world.gd throw_dir`); target-aimed player and bot

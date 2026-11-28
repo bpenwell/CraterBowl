@@ -64,7 +64,7 @@ see when hosting, joining, queueing) lives in `docs/features/` (online play). La
 | `welcome` | S→C | reliable, ch 0 | `aid`, `size`, `mode`, `v` (host's protocol version, #224) | from peer 1; `P.host_version_refusal(v)` must be `""`, else the client refuses the host (see [Version handshake](#version-handshake-165)); `aid` must index an athlete, `size` is 3, 5 or 7 (default 7), and `mode` is classic (default) or chaosball. Invalid fields leave the current assignment intact |
 | `snap` | S→all | unreliable-ordered, ch 1, 30 Hz | see Snapshots | from peer 1; tick `t` > last seen |
 | `ev` | S→all | reliable, ch 0 | `n` (event name), `d` | from peer 1; `d` forced to Dictionary |
-| `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()` | from peer 1; `s` is a Dictionary |
+| `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()`, with host settings including boolean `pass_marker` (#108) | from peer 1; `s` is a Dictionary |
 
 `snap` and `ev` are only broadcast once at least one peer holds an athlete; `lobby` once any peer exists.
 The host re-broadcasts every world event from `main.gd:_on_world_event`, plus match-level `looks`,

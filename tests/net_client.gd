@@ -40,6 +40,7 @@ var saw_lobby := false
 var lobby_size := 0
 var quarter_lobby_seen := false
 var quarter_clock_seen := false
+var pass_marker_off_in_lobby := false
 var lobby_code := ""
 var lead_samples := 0
 var was_locked := false     # C08d: joiner (defense) started in stance per host snapshot
@@ -114,6 +115,7 @@ func _on_lobby(st: Dictionary) -> void:
 		var settings: Dictionary = st.get("settings", {})
 		lobby_size = int(settings.get("size", 0))
 		quarter_lobby_seen = settings.get("quarters") == true and settings.get("quarter_minutes") == 3
+		pass_marker_off_in_lobby = st.get("settings", {}).get("pass_marker") == false
 		lobby_code = str(st.get("code", ""))
 		main.lobby_key(KEY_ENTER)   # ready up through the real lobby key path
 
@@ -244,6 +246,7 @@ func _physics_process(_dt: float) -> bool:
 		check(saw_grounded_breakup, "the client's elevated dead ball falls to turf after a breakup")
 		check(saw_lobby and lobby_size == 5 and lobby_code.length() == 11, "joined by code into the private lobby (5v5, code %s)" % lobby_code)
 		check(quarter_lobby_seen and quarter_clock_seen, "host lobby Q and H select three-minute quarters on both machines")
+		check(pass_marker_off_in_lobby and not main.lobby.settings["pass_marker"], "host I disables the pass marker on the client through match start")
 		check(aid >= 0, "readied up -> match started -> welcomed with athlete %d" % aid)
 		check(first_team == 1, "joiner initially placed on the opponent team")
 		check(main.match_size == 5 and main.world.athletes.size() == 10, "client adopted host's 5v5 (%d athletes)" % main.world.athletes.size())

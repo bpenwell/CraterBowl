@@ -13,6 +13,7 @@ const LosBarrier := preload("res://src/game/art/los_barrier.gd")
 const FieldArt := preload("res://src/game/art/field_art.gd")
 const KickArt := preload("res://src/game/kick_art.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
+const Passing := preload("res://src/sim/passing.gd")
 const TRAIL_LEN := 22
 
 var main: Node3D
@@ -36,6 +37,7 @@ var _dead_ball_fall_time := 0.0
 var _carrier = null   # view carrying the ball (player.gd), for the carry pose
 var _last_score := [0, 0]
 var barrier: LosBarrier
+var _pass_thrower := -1
 var kick_art: KickArt    # #68: kick power meter + kickoff tee
 var _ends_behind := 0    # #89: end painted behind the offense (FieldArt.orient_ends)
 var _period := 0         # #89: SWITCH ENDS banner on period change
@@ -67,6 +69,7 @@ func _ready() -> void:
 
 ## Rebuild per-field art (called from main.configure after the field exists).
 func rebuild(field_root: Node3D) -> void:
+	_pass_thrower = -1
 	stadium = Stadium.build(field_root, main.field, main.TEAM_COLORS)
 	chains = _build_chains(field_root)
 	if barrier and is_instance_valid(barrier):
@@ -207,10 +210,12 @@ func on_event(n: String, d: Dictionary) -> void:
 			shake = maxf(shake, 0.2)
 		"catch":
 			excite = maxf(excite, 0.35)
+		"snap":
+			_pass_thrower = -1
 		"throw":
-			var by := int(d.get("by", -1))
-			if by >= 0 and by < main.views.size():
-				main.views[by].throw_release()
+			_pass_thrower = int(d.get("by", -1))
+			if _pass_thrower >= 0 and _pass_thrower < main.views.size():
+				main.views[_pass_thrower].throw_release()
 		"breakup":
 			_dust(_athlete_pos(int(d.get("by", -1))), 8)
 	overlay.on_event(n, d)
@@ -414,18 +419,16 @@ func _update_ball(delta: float, w) -> void:
 			trail_mesh.surface_set_color(Color(1.0, 0.95, 0.75, 0.55 * f))
 			trail_mesh.surface_add_vertex(p - side * wdt)
 		trail_mesh.surface_end()
-	# Predicted landing spot for passes in flight.
-	landing.visible = false
-	if st == 1:
-		var g: float = w.gravity()
-		var vz: float = b.velocity.z
-		var z: float = b.position.z
-		var disc := vz * vz + 2.0 * g * z
-		if g > 0.0 and disc >= 0.0:
-			var t := (vz + sqrt(disc)) / g
-			var p := Vector2(b.position.x, b.position.y) + Vector2(b.velocity.x, b.velocity.y) * t
-			landing.position = Vector3(p.x, 0.04, -p.y)
-			landing.visible = true
+	landing.visible = st == 1 and (not w.forward_pass_thrown or _can_see_pass_marker(w))
+	if landing.visible:
+		var p := Passing.ground_landing(b.position, b.velocity, w.gravity())
+		landing.position = Vector3(p.x, 0.04, -p.y)
+
+func _can_see_pass_marker(w) -> bool:
+	# The reliable throw event identifies the passer to clients. A snapshot can arrive first.
+	var viewer = w.get_athlete(main.my_id)
+	return main.lobby.settings["pass_marker"] and _pass_thrower >= 0 and viewer != null \
+		and viewer.id != _pass_thrower and w.is_eligible_receiver(viewer)
 
 var _ring_team := -1
 
