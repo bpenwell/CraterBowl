@@ -81,12 +81,17 @@ func _run() -> void:
 		var h: Vector3 = got[c[2]].origin
 		var aim := (h - u).normalized().dot((ball - u).normalized())
 		check(aim > 0.8, "%s: near arm points at the ball (cos %.2f)" % [c[0], aim])
-		# The chest's front, seen down the spine, within 45 deg of the ball (the clip's slide faces the sky).
 		var spine: Vector3 = (got.neck_01.origin - got.spine_02.origin).normalized()
-		var front: Vector3 = got.spine_03.basis.z
 		var to: Vector3 = ball - got.spine_02.origin
-		var off := rad_to_deg((front - spine * front.dot(spine)).angle_to(to - spine * to.dot(spine)))
-		check(off < 45.0, "%s: chest rolls toward the ball (%.0f deg off)" % [c[0], off])
+		if c[0] == "dive-reach-high":
+			# Over a belly-down diver: the spine bends up toward it (rolling would turn his back to it).
+			var bend := rad_to_deg(spine.angle_to(to))
+			check(bend < 40.0, "%s: spine bends toward the ball (%.0f deg off)" % [c[0], bend])
+		else:
+			# Off to a side: the chest's front, seen down the spine, within 45 deg of the ball.
+			var front: Vector3 = got.spine_03.basis.z
+			var off := rad_to_deg((front - spine * front.dot(spine)).angle_to(to - spine * to.dot(spine)))
+			check(off < 45.0, "%s: chest rolls toward the ball (%.0f deg off)" % [c[0], off])
 		await capture(c[0])
 	finish()
 

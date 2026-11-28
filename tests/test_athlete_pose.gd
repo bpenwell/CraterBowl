@@ -257,21 +257,23 @@ func test_reach_closes_both_hands_on_the_ball() -> void:
 	assert_true(rs.dot(ls) < 0.0, "hands on opposite sides of the ball")
 	v.free()
 
-## #360: diving, the chest rolls about the spine toward the ball and the spine bends toward
-## it; the legs keep the dive clip, and the near hand gets to a ball within reach.
+## #360: diving (on the #387 head-first launch), the chest rolls about the spine toward the
+## ball and the spine bends toward it; the legs keep the dive clip, and the near hand gets to a ball within reach.
 func test_diving_reach_turns_the_chest_toward_the_ball() -> void:
 	var v = _view(Athlete.Role.WR)
 	var sk := _skel(v)
-	var clip: Animation = v.anim.get_animation("u2/Slide_Start")
+	var clip: Animation = v.anim.get_animation(PlayerNode.DIVE_CLIP)
 	for c in [["left", Vector3(0.55, 0.1, 0.45), "hand_l"], ["right", Vector3(-0.55, 0.1, 0.45), "hand_r"], ["high", Vector3(0.0, 0.75, 0.35), "hand_r"]]:
-		_pose(sk, clip, 0.26)
+		_pose(sk, clip, 0.25)
 		var legs := [sk.get_bone_pose_rotation(sk.find_bone("thigh_r")), sk.get_bone_pose_rotation(sk.find_bone("thigh_l"))]
 		var ball: Vector3 = _bone_pos(sk, "spine_03") + c[1]   # skeleton space: +Z heading, +X left
-		var before := _chest_off_ball(sk, ball)
+		# Off to a side the chest rolls to face it; over a belly-down diver the spine bends up to it.
+		var off := _spine_off_ball if c[0] == "high" else _chest_off_ball
+		var before: float = off.call(sk, ball)
 		var hand_before := _bone_pos(sk, c[2]).distance_to(ball)
 		_dive_catch(v, sk, ball, 1.0)
-		var after := _chest_off_ball(sk, ball)
-		assert_true(before > 5.0 and after < before * 0.5, "%s ball: chest turns toward it (%.0f -> %.0f deg off)" % [c[0], before, after])
+		var after: float = off.call(sk, ball)
+		assert_true(after < before - 20.0, "%s ball: upper body turns toward it (%.0f -> %.0f deg off)" % [c[0], before, after])
 		assert_true(_bone_pos(sk, c[2]).distance_to(ball) < minf(hand_before - 0.1, 0.3), "%s ball: near hand reaches it" % c[0])
 		assert_true(sk.get_bone_pose_rotation(sk.find_bone("thigh_r")).is_equal_approx(legs[0]) 			and sk.get_bone_pose_rotation(sk.find_bone("thigh_l")).is_equal_approx(legs[1]), "%s ball: legs follow the dive clip" % c[0])
 	v.free()
@@ -281,12 +283,12 @@ func test_diving_reach_turns_the_chest_toward_the_ball() -> void:
 func test_diving_twist_stays_within_limits_for_every_ball_direction() -> void:
 	var v = _view(Athlete.Role.WR)
 	var sk := _skel(v)
-	var clip: Animation = v.anim.get_animation("u2/Slide_Start")
+	var clip: Animation = v.anim.get_animation(PlayerNode.DIVE_CLIP)
 	var worst_turn := 0.0
 	var worst_stretch := 0.0
 	for i in 24:
 		for pitch in [-60.0, -20.0, 20.0, 60.0]:
-			_pose(sk, clip, 0.26)
+			_pose(sk, clip, 0.25)
 			var clip_chest := sk.get_bone_global_pose(sk.find_bone("spine_03")).basis.get_rotation_quaternion()
 			var y := deg_to_rad(i * 15.0)
 			var p := deg_to_rad(pitch)
@@ -308,11 +310,11 @@ func test_diving_twist_stays_within_limits_for_every_ball_direction() -> void:
 func test_dive_blend_is_continuous() -> void:
 	var v = _view(Athlete.Role.WR)
 	var sk := _skel(v)
-	var clip: Animation = v.anim.get_animation("u2/Slide_Start")
+	var clip: Animation = v.anim.get_animation(PlayerNode.DIVE_CLIP)
 	var standing := Quaternion.IDENTITY
 	var turns := []
 	for d in [0.0, 0.25, 0.5, 0.75, 1.0]:
-		_pose(sk, clip, 0.26)
+		_pose(sk, clip, 0.25)
 		_dive_catch(v, sk, _bone_pos(sk, "spine_03") + Vector3(0.55, 0.1, 0.45), d)
 		var q := sk.get_bone_global_pose(sk.find_bone("spine_03")).basis.get_rotation_quaternion()
 		if d == 0.0:
@@ -329,6 +331,11 @@ func _dive_catch(v, sk: Skeleton3D, ball: Vector3, dive: float) -> void:
 	v.pose.catch_weight = 1.0
 	v.pose.apply(sk)
 	sk.force_update_all_bone_transforms()
+
+## Degrees between the spine (spine_02 to neck) and the ball (the bend left).
+func _spine_off_ball(sk: Skeleton3D, ball: Vector3) -> float:
+	var s2 := _bone_pos(sk, "spine_02")
+	return rad_to_deg((_bone_pos(sk, "neck_01") - s2).angle_to(ball - s2))
 
 ## Degrees between the chest's front and the ball, both seen down the spine (the roll left).
 func _chest_off_ball(sk: Skeleton3D, ball: Vector3) -> float:

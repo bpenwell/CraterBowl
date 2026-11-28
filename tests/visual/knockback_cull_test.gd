@@ -4,7 +4,7 @@ extends "res://tests/visual/harness.gd"
 const PlayerView := preload("res://src/game/player.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
 const CELL := Vector2i(320, 360)
-const POSES := [["Idle", 0.4], ["Sprint", 0.25], ["u2/Slide_Start", 0.3], ["u2/Slide", 0.4],
+const POSES := [["Idle", 0.4], ["Sprint", 0.25], ["Roll", 0.25], ["u2/Slide", 0.4],
 	["u2/Idle_No", 0.6], ["u2/Idle_TalkingPhone", 0.8], ["Dance", 0.7], ["u2/Hit_Knockback", 0.3]]
 
 func _initialize() -> void:

@@ -34,6 +34,22 @@ const MODEL_SCALE := 1.08
 const BLEND := 0.18
 ## Carry pose blend rate (1/s): about 0.2 s to tuck the ball in or out.
 const CARRY_K := 14.0
+## Head-first dive (#387), UAL clips only. DIVE_CLIP's launch is airborne, belly-down, arms
+## ahead (from 0.38 s it tucks into a somersault, so DIVE_RATE ends the 0.35 s dive at ~0.31 s).
+## Lying after it: PRONE_CLIP frozen at PRONE_AT (belly-down, arms forward), lifted PRONE_LIFT
+## so its lowest bone sits on the turf, PRONE_BLEND to fall there from the launch. With
+## GETUP_AT s of recovery left he pushes up through GETUP_CLIP. Not LayToIdle: it starts face-up.
+const DIVE_CLIP := "Roll"
+const DIVE_RATE := 0.9
+const PRONE_CLIP := "Swim_Fwd"
+const PRONE_AT := 0.5
+const PRONE_LIFT := 0.27
+const PRONE_BLEND := 0.25
+const PRONE_TURF := 0.05   # m: the lowest hand or head stays this far up (bone centres, not skin)
+const GETUP_CLIP := "Crouch_Idle"
+const GETUP_AT := 0.5
+const GETUP_MAX_SPEED := 2.0   # yd/s: no push-up while still sliding faster than this
+const GETUP_LATEST := 0.25     # s of recovery left: push up now, sliding or not
 ## Head look smoothing (1/s): the look point trails a fast ball a little, like eyes do.
 const LOOK_K := 10.0
 ## Heads only turn when the athlete is big enough on screen to see it: the camera view's
@@ -131,6 +147,10 @@ var _shadow_moved := false   # following a fallen body instead of sitting under 
 var _release_t := 0.0
 var _cur := ""
 var _was_down := false
+var _dove := false       # this time down started with a dive: lie prone, push up (#387)
+var _down_t := 0.0       # s on the turf, for a replay's get-up (the recording has no recover_t)
+var _prone_lift := 0.0   # m: PRONE_LIFT or more while the prone hold plays, then eases off
+var _ground_bones: Array[int] = []   # hand_l, hand_r, Head: kept on the turf while prone
 var _push := false   # this frame: an engaged block at a pushing pace (see _choose_anim)
 # Render interpolation (docs/optimization/README.md): sync()/place() record the last two
 # sim poses once per physics tick; interpolate(f) draws between them every frame.
@@ -527,13 +547,16 @@ func sync() -> void:
 	if celebrate_t > 0.0:
 		celebrate_t = maxf(0.0, celebrate_t - Tick.DT)
 
-func _play(name: String, blend: float = BLEND, speed: float = 1.0) -> void:
+## `at` >= 0: start the clip there.
+func _play(name: String, blend: float = BLEND, speed: float = 1.0, at: float = -1.0) -> void:
 	if anim == null or not anim.has_animation(name):
 		return
 	anim.speed_scale = speed
 	if _cur != name:
 		_cur = name
 		anim.play(name, blend)
+		if at >= 0.0:
+			anim.seek(at, true)
 
 func _process(delta: float) -> void:
 	if delta <= 0.0 or body == null:
@@ -571,6 +594,9 @@ func _process(delta: float) -> void:
 	else:
 		_choose_replay_anim(spd)
 	_was_down = down
+	if not down:
+		_dove = false
+	_down_t = _down_t + delta if down and not diving else 0.0
 	if pose:
 		var target := 1.0 if ball_node != null else 0.0
 		pose.weight = lerpf(pose.weight, target, 1.0 - exp(-CARRY_K * delta))
@@ -584,7 +610,10 @@ func _process(delta: float) -> void:
 		_update_look(delta, down, diving)
 	# Celebration flourishes on top of the dance.
 	body.rotation = Vector3.ZERO
-	body.position = Vector3(0.0, jump_pose.lift(), 0.0)
+	# On at once, and through the fall into the prone pose high enough that no hand or the head
+	# dips under the turf (the cross-fade from the launch pitches the arms down); eases off.
+	_prone_lift = maxf(PRONE_LIFT, _clip_under_turf()) if _cur == PRONE_CLIP and not is_falling() 		else lerpf(_prone_lift, 0.0, 1.0 - exp(-CARRY_K * delta))
+	body.position = Vector3(0.0, jump_pose.lift() + _prone_lift, 0.0)
 	if live and athlete.is_spinning():
 		body.rotation.y = TAU * (1.0 - athlete.move_t / T.SPIN_TIME)
 	if live and celebrate_t > 0.0:
@@ -610,14 +639,20 @@ func _choose_anim(spd: float, down: bool) -> void:
 		_play({"hop": "Jump", "flip": "Roll"}.get(celebrate_kind, "Dance"))
 		return
 	if is_falling():
+		_dove = false   # a fumble fall from the dive gets up through tackle_fall.gd, then stands
 		if not fall.holding() and not fall.rising():   # hit-stop: keep the contact frame; getting up: tackle_fall plays it
 			_play("Idle", 0.1)   # under the ragdoll: only the neck and clavicles still follow a clip
 		return
 	if athlete.is_diving():
-		_play("u2/Slide_Start", 0.08, 1.6)
+		_dove = true
+		_play(DIVE_CLIP, 0.08, DIVE_RATE)
 		return
 	if athlete.is_grounded():
-		# Lie on the turf, then pop back up as the recovery ends.
+		if _dove:
+			# Online clients decode recover_t as 0.01 while grounded (#397): time it here as well.
+			_lie_prone(maxf(athlete.recover_t, T.DIVE_RECOVER - _down_t), spd)
+			return
+		# Knocked down (not a dive): lie on the turf, then pop back up as the recovery ends.
 		if not _was_down or _cur == "u2/Slide_Start":
 			_play("u2/Slide", 0.12)
 		if athlete.recover_t < 0.7:
@@ -645,13 +680,42 @@ func _choose_anim(spd: float, down: bool) -> void:
 	# Driven back while facing the blocker: the jog runs in reverse, a backpedal.
 	_locomotion(spd, presnap, _push and athlete.velocity.dot(_to_foe()) < 0.0)
 
+## After a dive (#387): prone on the turf, then the push-up with GETUP_AT s of recovery left.
+## How far (m) the clip's lowest hand or head sits under the turf, without the prone lift.
+## Reads the clip pose (outside the skeleton update, before the pose layer): a prone athlete only.
+func _clip_under_turf() -> float:
+	if _skel == null:
+		return 0.0
+	if _ground_bones.is_empty():
+		for b in ["hand_l", "hand_r", "Head"]:
+			_ground_bones.append(_skel.find_bone(b))
+	var low := INF
+	for b in _ground_bones:
+		if b >= 0:
+			low = minf(low, (_skel.global_transform * _skel.get_bone_global_pose(b).origin).y)
+	return 0.0 if low == INF else _prone_lift + PRONE_TURF - (low - global_position.y)
+
+## spd: how fast the body still slides; the push-up waits until it has nearly stopped, or
+## GETUP_LATEST s are left.
+func _lie_prone(recover_left: float, spd: float) -> void:
+	if recover_left > GETUP_AT or (spd > GETUP_MAX_SPEED and recover_left > GETUP_LATEST):
+		_play(PRONE_CLIP, PRONE_BLEND, 1.0, PRONE_AT)
+		anim.seek(PRONE_AT)   # held here; speed_scale 0 would also freeze the cross-fade into it
+	else:
+		_play(GETUP_CLIP, 0.3)
+
 ## A replayed view: the recorded dive / lying / fair-catch flags, else running by its recorded
 ## motion, pushing while the recording has it engaged in a block (#374, #198).
 func _choose_replay_anim(spd: float) -> void:
 	if replay_flags & Replay.F_DIVING:
-		_play("u2/Slide_Start", 0.08, 1.6)
+		_dove = true
+		_play(DIVE_CLIP, 0.08, DIVE_RATE)
 	elif replay_flags & Replay.F_GROUNDED:
-		_play("u2/Slide", 0.12)
+		if _dove:
+			# shortcut: wall-clock time down, so a paused or slow replay gets up early; use the replay clock if that shows.
+			_lie_prone(T.DIVE_RECOVER - _down_t, spd)
+		else:
+			_play("u2/Slide", 0.12)
 	elif fair_catch_shown and spd < 1.5:
 		_play("Pistol_Aim_Up", 0.12)
 	else:

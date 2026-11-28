@@ -5,9 +5,9 @@ extends "res://tests/visual/harness.gd"
 
 const PlayerView := preload("res://src/game/player.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
-## [label, clip, time (s)]: idle (menus, POTG), run, dive, down, taunts, celebrations, hit.
+## [label, clip, time (s)]: idle (menus, POTG), run, dive (#387 launch), down (prone after it), taunts, celebrations, hit.
 const POSES := [["idle / POTG", "Idle", 0.4], ["sprint", "Sprint", 0.25],
-	["dive", "u2/Slide_Start", 0.3], ["down", "u2/Slide", 0.4],
+	["dive", "Roll", 0.25], ["down", "Swim_Fwd", 0.5],
 	["taunt: nope", "u2/Idle_No", 0.6], ["taunt: phone", "u2/Idle_TalkingPhone", 0.8],
 	["dance", "Dance", 0.7], ["hit", "u2/Hit_Knockback", 0.3]]
 const CELL := Vector2i(320, 360)
