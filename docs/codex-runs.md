@@ -44,3 +44,19 @@ Five backlog items reached separate PRs. Each passed the full local gate. The ow
 - The first full gate for #323 was interrupted during matchmaking. A detached retry passed. When the owner merged #356, #358, and #359, the dive branch kept both timeline changes and passed again on current main.
 - Inspected the fumble and dive before/after pairs, the one-pixel comparison fixture, and all three audible states. PR descriptions link to the Actions captures and logs.
 - The checkout started clean. No changes were stashed.
+
+## 2026-11-27 — Replay continuity and the audible test gate
+
+| Issue | PR | Change commit | Gate and status |
+|---|---|---|---|
+| [#375](https://github.com/bpenwell/CraterBowl/issues/375) Release linemen at the whistle | [#383](https://github.com/bpenwell/CraterBowl/pull/383) | `c3091f4` | 566 unit tests. Owner merged as `6093ce8`. [CI passed](https://github.com/bpenwell/CraterBowl/actions/runs/46096661593). |
+| [#381](https://github.com/bpenwell/CraterBowl/issues/381) Keep recording during a hosted replay | [#385](https://github.com/bpenwell/CraterBowl/pull/385) | `a5a8948` | 565 unit tests. Owner merged as `9be676c`. [CI passed](https://github.com/bpenwell/CraterBowl/actions/runs/46097357519). |
+| [#395](https://github.com/bpenwell/CraterBowl/issues/395) Restore the audible fixtures after route-art extraction | [#396](https://github.com/bpenwell/CraterBowl/pull/396) | `805fcc4` | 569 unit tests. Open for owner review. [CI passed](https://github.com/bpenwell/CraterBowl/actions/runs/46099174783). |
+| [#384](https://github.com/bpenwell/CraterBowl/issues/384) Keep the joiner's replay timeline recording | [#399](https://github.com/bpenwell/CraterBowl/pull/399) | `01f87b7` | 570 unit tests. Open for review against #396. [CI run](https://github.com/bpenwell/CraterBowl/actions/runs/46099769931). |
+| [#386](https://github.com/bpenwell/CraterBowl/issues/386) Keep the host idle during replay | [#400](https://github.com/bpenwell/CraterBowl/pull/400) | `3359e9d` | 569 unit tests. Open for review against #396. [CI run](https://github.com/bpenwell/CraterBowl/actions/runs/46100439821). |
+
+- All five PR branches passed the full local gate. Inspected the dead-ball, saved host replay, joiner replay, hosted input, and audible captures.
+- Opened #384 for the joiner's recording, #386 for the host input leak, and #395 for a merged test failure. #401 tracks this log entry. #398 independently reported the audible failure and is linked to #395.
+- Main at `84f7e03` failed when the audible fixtures called the former route-art method after #371. #399 and #400 include the standalone fix and target its branch until it lands. The baseline has file-size warnings in `main.gd` and `player.gd`.
+- Skipped #298 because its gamepad help overlaps the claimed Controls redesign #134. Skipped #372 and #373 while their fixes were in review. #376 requires the tackle-fall implementation in #367.
+- The checkout started clean. No changes were stashed. The two older Codex stash entries remain available.
