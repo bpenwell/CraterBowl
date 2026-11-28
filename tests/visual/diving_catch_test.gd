@@ -67,7 +67,7 @@ func _run() -> void:
 	game._render()
 	for frame in 24:
 		await process_frame
-	check(player.anim.assigned_animation == "u2/Slide_Start", "the dive plays the slide clip")
+	check(player.anim.assigned_animation == player.DIVE_CLIP, "the dive plays the dive clip")
 	check(player.pose.catch_weight > 0.9 and player.pose.catch_reach > 0.9, "diving receiver reaches for the pass")
 	player.anim.seek(0.26, true)
 	player.anim.pause()

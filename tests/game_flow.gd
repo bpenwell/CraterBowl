@@ -493,6 +493,8 @@ func _initialize() -> void:
 			_key(KEY_R)
 			check(qb.move_t == 0.0 and qb.move_charge == c0, "R without a charge does not dash")],
 		[12680, func(): main.world.get_athlete(main.controlled_id).facing = Vector2(0, 1); _key(KEY_F); check(main.world.get_athlete(main.controlled_id).is_diving(), "F dives with the ball")],
+		# #387: head-first dive clip. (He lands as the whistle blows: tackle_fall.gd takes over.)
+		[12690, func(): check(main.views[main.controlled_id].anim.assigned_animation == main.views[main.controlled_id].DIVE_CLIP, "the dive plays the head-first launch (%s)" % main.views[main.controlled_id].anim.assigned_animation)],
 		[12720, func(): check(main.world.phase == main.World.Phase.DEAD and main.last_whistle == "TACKLE", "carrier dive: down where he lands (%s)" % main.last_whistle)],
 		# #139 taunt wheel: moved to tests/flow/segments/taunt_wheel.gd. Restore the knobs it left
 		# for the steps after it (they aim at a field point, with the defense on).

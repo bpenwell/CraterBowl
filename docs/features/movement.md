@@ -79,6 +79,10 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
 - Any opponent of the carrier whose dive brings him within `TACKLE_REACH` (1.0 yd) tackles him, unless the carrier is
   spinning. A tackle can also strip the ball (rules link above).
 - After the dive you are grounded for `DIVE_RECOVER` (1.0 s), sliding to a stop. Grounded players don't collide or block.
+- The dive is head-first (#387): a superman launch (`Roll` 0-0.31 s, airborne and belly-down,
+  arms ahead), then he lies prone on the turf (`Swim_Fwd` held at 0.5 s), then pushes up to his
+  hands and knees (`Crouch_Idle`) for the last 0.5 s of the recovery and stands. View only: no sim
+  or wire change. Knockdowns that aren't dives (a fumble) still use the slide and `LayToIdle`.
 - Anyone can dive, including the carrier (a lunge; the play stays live while he lies there).
 - Bots dive when within `AI_DIVE_RANGE` (2.0 yd) of the carrier.
 
