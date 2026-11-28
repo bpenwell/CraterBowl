@@ -123,7 +123,7 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   sideline stops, first downs, scores, turnovers and tries stop it.
 - **One-minute warning** once per half, in Q2 and Q4. A live play finishes first. A crossing
   between plays stops the clock at 1:00.
-- **Timeouts:** T, outside live play, by either team; the scorebug shows pips. Resets the play clock if pre-snap.
+- **Timeouts:** T, outside live play, by either team; the scorebug shows a lit (available) or hollow (used) bar per timeout (#133). Resets the play clock if pre-snap.
   Counts reset at halftime. No gamepad binding.
 - A period can end between snaps when the running clock hits 0:00. A play in progress at 0:00 finishes, and a touchdown on it still gets its try.
 - At the end of Q1 and Q3, the next period starts with the same possession, down, spot and remaining timeouts.
