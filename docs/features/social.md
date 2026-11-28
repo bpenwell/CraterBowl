@@ -4,7 +4,7 @@ Feature-level doc: how this works for players **today** on `main`. Design/implem
 
 ## Summary
 There is **no in-match communication** today: no voice, no text chat, no quick-chat wheel and no pings.
-The one in-match expression is **taunts**: hold C for a radial wheel of 8 cosmetic taunts (animation + speech bubble). A taunt ends when the next play lines everyone up (#426), so it never carries into the pre-snap.
+The one in-match expression is **taunts**: hold C for a radial wheel of 8 cosmetic taunts (animation + speech bubble). A taunt (and a TD celebration) ends when the next play lines up (#426), so it never carries into the pre-snap.
 The social features that do ship sit around a match: names, invite codes, parties and private lobbies. They're documented in [online.md](online.md); this page indexes them and tracks the communication work.
 
 ## How it plays
@@ -38,7 +38,7 @@ The social features that do ship sit around a match: names, invite codes, partie
 - Voice is host-relayed and team-filtered on the host, so a client can't subscribe to the other team. A modified host could still listen in, which is accepted for a friends game (see the design doc).
 
 ## Code and tests
-- Taunts: `src/sim/emotes.gd` (list, rate limit), `src/game/taunt_wheel.gd`, tests `tests/test_taunt_wheel.gd` + `tests/game_flow.gd`; a teleport ends a taunt and a down scorer celebrates after getting up: `tests/test_view_celebrate.gd`, `tests/visual/celebrate_after_getup_test.gd` (captures `celebrate-waits-while-down`, `celebrate-after-getup`; 79 frames of dancing on the turf before the fix).
+- Taunts: `src/sim/emotes.gd` (list, rate limit), `src/game/taunt_wheel.gd`, tests `tests/test_taunt_wheel.gd` + `tests/game_flow.gd`; the next play ends a taunt and a celebration, and a down scorer gets up before he celebrates: `tests/test_view_celebrate.gd`, `tests/visual/celebrate_after_getup_test.gd` (a real dive touchdown; captures `celebrate-getting-up`, `celebrate-after-getup`; 91 frames of dancing while down before the fix).
 - No voice/text/ping code exists yet. Name handling: `src/ui/settings_store.gd` (`clean_name`), `src/net/lobby.gd` (`set_name`).
 - Parties, lobby and browser code and tests: see [online.md](online.md#code-and-tests).
 

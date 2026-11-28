@@ -84,6 +84,8 @@ var celebrate_kind := "none"
 var celebrate_t := 0.0
 var emote_id := ""
 var emote_t := 0.0
+var _celebrate_up := false   # a scorer down at the whistle has got up in the view (#426)
+var _phase := -1             # world.phase at the last sync, to see a new play start
 var spin_vis_t := 0.0      # view-side spin animation (works for net + local)
 var spin_vis_side := 0
 var jump_pose := preload("res://src/game/jump_pose.gd").new()   # view-side jump (#379)
@@ -342,9 +344,9 @@ func _show_fair_catch(on: bool) -> void:
 func is_celebrating() -> bool:
 	return celebrate_t > 0.0 and not _down()   # down: the ball stays in his hands until he is up
 
-## Diving, lying on the turf or in a tackle fall (live views).
+## Diving, lying on the turf or in a tackle fall (live views), and not yet up to celebrate.
 func _down() -> bool:
-	return athlete.is_diving() or athlete.is_grounded() or is_falling()
+	return (athlete.is_diving() or athlete.is_grounded() or is_falling()) and not _celebrate_up
 
 ## Tackle impact reaction.
 func hit() -> void:
@@ -528,6 +530,13 @@ func sync() -> void:
 		scale = Vector3(b[0], b[1], (b[0] + 1.0) * 0.5)
 	if celebrate_t > 0.0 and not _down():   # down in the end zone: he gets up, then celebrates (#426)
 		celebrate_t = maxf(0.0, celebrate_t - Tick.DT)
+	var phase: int = int(world.phase) if world != null else -1
+	if phase != _phase:
+		_phase = phase
+		if phase == 0:   # a new play lines up: no dead-ball taunt or celebration carries into it (#426)
+			emote_t = 0.0
+			celebrate_t = 0.0
+			_celebrate_up = false
 
 func _play(name: String, blend: float = BLEND, speed: float = 1.0) -> void:
 	if anim == null or not anim.has_animation(name):
@@ -608,17 +617,24 @@ func _process(delta: float) -> void:
 		_shadow.global_position = ground_position() + Vector3(0, 0.02, 0) if _shadow_moved else global_position + Vector3(0, 0.02, 0)
 
 func _choose_anim(spd: float, down: bool) -> void:
-	if celebrate_t > 0.0 and not down:
+	if celebrate_t > 0.0 and _down() and not is_falling():
+		# Down at the touchdown: the sim holds a dead ball's holder where he is (world.gd step),
+		# so he'd lie there the whole dead ball. Get up now, then celebrate (#426).
+		_play("u2/LayToIdle", 0.15, 1.6)
+		if anim == null or anim.current_animation_position < anim.current_animation_length - 0.05:
+			return
+		_celebrate_up = true
+	if celebrate_t > 0.0 and not _down():
 		_play({"hop": "Jump", "flip": "Roll"}.get(celebrate_kind, "Dance"))
 		return
 	if is_falling():
 		if not fall.holding() and not fall.rising():   # hit-stop: keep the contact frame; getting up: tackle_fall plays it
 			_play("Idle", 0.1)   # under the ragdoll: only the neck and clavicles still follow a clip
 		return
-	if athlete.is_diving():
+	if athlete.is_diving() and not _celebrate_up:
 		_play("u2/Slide_Start", 0.08, 1.6)
 		return
-	if athlete.is_grounded():
+	if athlete.is_grounded() and not _celebrate_up:
 		# Lie on the turf, then pop back up as the recovery ends.
 		if not _was_down or _cur == "u2/Slide_Start":
 			_play("u2/Slide", 0.12)
@@ -711,7 +727,6 @@ func place(p: Vector3, yaw: float) -> void:
 	if not _has_pose or p.distance_to(_cur_pos) > TELEPORT_DIST:
 		if is_falling():
 			fall.stop()   # next play: back on his feet
-		emote_t = 0.0   # a taunt from the dead ball doesn't carry into the next play (#426)
 		chase_sim = false
 		_prev_pos = p
 		_prev_yaw = yaw

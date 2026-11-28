@@ -1,6 +1,7 @@
 extends "res://tests/visual/harness.gd"
-## #426: a scorer who is down (dove into the end zone) gets up before he celebrates. He used
-## to pop off the turf straight into the dance. Captures keyed to sim state, not frame counts.
+## #426: the carrier dives across the goal line. The sim holds a dead ball's holder where he
+## lies for the whole dead ball, and the view used to pop him off the turf straight into the
+## dance. Now he gets up (LayToIdle) first, then celebrates. Captures keyed to clip state.
 
 const MAX_FRAMES := 240
 
@@ -26,39 +27,56 @@ func _run() -> void:
 	await physics_frame
 	_key(KEY_SPACE)
 	var world = game.world
-	var wr = world.find_role(0, game.Athlete.Role.WR)
-	game.set_controlled(wr.id)
-	wr.facing = Vector2(1, 0)
-	var view = game.views[wr.id]
+	var qb = null
+	for i in 120:   # the snap reaches the QB
+		qb = world.carrier()
+		if qb != null:
+			break
+		await physics_frame
+	check(qb != null, "the QB holds the snap")
+	if qb == null:
+		finish()
+		return
+	game.set_controlled(qb.id)
+	qb.position = Vector2(26.0, world.field.length - 1.5)
+	qb.facing = Vector2(0, 1)
+	var view = game.views[qb.id]
 	cam = Camera3D.new()
 	cam.fov = 45.0
 	root.add_child(cam)
 	_key(KEY_F)
-	check(wr.is_diving(), "F dives")
-	view.celebrate("dance")   # as main.gd does on the touchdown event
-	var down_shot := false
+	check(qb.is_diving(), "F dives at the goal line")
+	var scored := false
+	var got_up := 0        # frames of the get-up clip before the dance
+	var danced_early := 0  # frames dancing before any get-up
 	var danced := false
-	var danced_down := 0   # frames dancing while down
 	for frame in MAX_FRAMES:
 		await physics_frame
-		cam.global_position = view.global_position + Vector3(0.0, 1.6, 4.8)
+		cam.global_position = view.global_position + Vector3(4.8, 1.6, 0.0)
 		cam.look_at(view.global_position + Vector3.UP * 0.6)
 		cam.make_current()
 		await process_frame
-		var down: bool = wr.is_diving() or wr.is_grounded() or view.is_falling()
-		if down:
-			if view._cur == "Dance":
-				danced_down += 1
-			if not down_shot and wr.is_grounded() and wr.recover_t < 0.6:
-				down_shot = true
-				check(view.celebrate_t == 1.5, "the celebration waits: %.2f s left" % view.celebrate_t)
-				await capture("celebrate-waits-while-down")
-		elif view._cur == "Dance" and view.celebrate_t < 1.2:
-			danced = true
-			await capture("celebrate-after-getup")
-			break
-	check(danced_down == 0, "no dance while down: %d frames" % danced_down)
-	check(down_shot and danced, "down first, then the dance (down %s, danced %s)" % [down_shot, danced])
+		if not scored and world.phase == world.Phase.DEAD:
+			scored = true
+			view.celebrate("dance")   # as main.gd does on the touchdown event, with a Dance celebration
+			check(qb.is_diving() or qb.is_grounded(), "down in the end zone at the whistle")
+		if not scored:
+			continue
+		if view._cur == "u2/LayToIdle":
+			got_up += 1
+			if got_up == 12:
+				await capture("celebrate-getting-up")
+		elif view._cur == "Dance":
+			if got_up == 0:
+				danced_early += 1
+			elif view.celebrate_t < 1.2:
+				danced = true
+				await capture("celebrate-after-getup")
+				break
+	check(scored, "touchdown")
+	check(danced_early == 0, "no dance before he gets up: %d frames" % danced_early)
+	check(got_up > 20, "he gets up first: %d frames of LayToIdle" % got_up)
+	check(danced, "then he dances")
 	finish()
 
 func _key(code: int) -> void:
