@@ -64,6 +64,17 @@ func _run() -> void:
 	check(view._cur == "Jump", "peak: looping Jump clip (%s)" % view._cur)
 	check(view.body.position.y > 0.7, "peak: body lifted near JUMP_HEIGHT (%.2f)" % view.body.position.y)
 	check(view.anim.current_animation == view._cur, "peak: the rig plays %s (%s)" % [view._cur, view.anim.current_animation])
+	# #425: the carrier secures the ball with both hands in the air (the loop held the free arm out).
+	check(view.pose.secure > 0.9, "peak: both hands secure the ball (%.2f)" % view.pose.secure)
+	var sk: Skeleton3D = view._skel
+	var hands := {}
+	var grab := func() -> void:   # as drawn: Godot restores the clip pose after the modifiers
+		hands["l"] = sk.global_transform * sk.get_bone_global_pose(sk.find_bone("hand_l")).origin
+	view.pose.modification_processed.connect(grab, CONNECT_ONE_SHOT)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var free_hand: float = hands.get("l", Vector3.INF).distance_to(game.ball_view.global_position)
+	check(free_hand < 0.3, "peak: the free (left) hand is on the ball, not out to the side (%.2f m)" % free_hand)
 	await capture("jump_peak")
 
 	await _after(LANDING_FRAME - PEAK_FRAME - 1)

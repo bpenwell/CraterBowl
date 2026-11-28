@@ -75,6 +75,8 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
   `Jump_Land` clips and lifts the body on its own display-rate clock.
   A landing above `LAND_SQUAT_MAX_SPEED` (2.5 yd/s) goes straight back into the run: `Jump_Land` is a
   standing squat, and at run speed it slid along the turf (#425).
+  A ball carrier in the air secures the ball with both hands (`athlete_pose` `secure`, as in a tackle
+  fall): the `Jump` loop held his free arm stiffly out (#425).
 
 ### Dive tackle
 - **F** launches a dive in your facing direction at `DIVE_SPEED` (11 yd/s) for `DIVE_TIME` (0.35 s), about 3.9 yd.
