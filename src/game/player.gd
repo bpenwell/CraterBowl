@@ -452,7 +452,9 @@ func _update_catch(delta: float, can_reach: bool, dive_reach: bool) -> void:
 		else _catch_wanted and can_reach and _pass_in_air() \
 		and look_node.global_position.distance_to(chest) < CATCH_LEAD * world.ball.velocity.length()
 	if catching:
-		pose.catch_twist = not (dive_reach if replay_flags < 0 else (replay_flags & Replay.F_DIVING) != 0)
+		# Diving (#360): the reach frame and twist follow the dive. Fresh catch: no blend in.
+		var dive := 1.0 if (dive_reach if replay_flags < 0 else (replay_flags & Replay.F_DIVING) != 0) else 0.0
+		pose.catch_dive = dive if pose.catch_weight <= 0.0 else lerpf(pose.catch_dive, dive, 1.0 - exp(-CARRY_K * delta))
 		var ball := look_node.global_position
 		pose.catch_target = _skel.global_transform.affine_inverse() * ball
 		pose.catch_reach = clampf((REACH_FAR - ball.distance_to(chest)) / (REACH_FAR - REACH_NEAR), 0.0, 1.0)
