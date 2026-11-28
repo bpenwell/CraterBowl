@@ -356,6 +356,7 @@ func hit() -> void:
 ## velocity, contact = the velocity the hit drives the contact point to (yd/s, world),
 ## contact_h = the hit's height (yd). fumble: the ball came out, so he scrambles up sooner.
 func tackled(run: Vector3, impulse: Vector3, point: Vector3, fumble := false) -> void:
+	kick_t = -1.0   # the fall captures the body as it is: not mid-swing
 	if pose == null or _skel == null:
 		hit()
 		return

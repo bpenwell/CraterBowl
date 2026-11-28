@@ -280,8 +280,8 @@ func test_diving_reach_keeps_the_slide_torso_and_legs() -> void:
 		assert_true(rotation.is_equal_approx(clip_rotations[bone]), bone + " follows the slide")
 	v.free()
 
-## #424: the kick swings the right leg through the ball over the clip: back with the knee bent
-## at the start, the foot well out in front and up at contact, the left leg on the clip, and
+## #424: the kick swings the right leg through the ball over the clip: easing off the clip at
+## the start, the foot well out in front and up at contact, the left leg on the clip, and
 ## back to the clip at the end.
 func test_kick_swings_the_right_leg_through() -> void:
 	var v = _view(Athlete.Role.WR)
@@ -299,7 +299,7 @@ func test_kick_swings_the_right_leg_through() -> void:
 		sk.force_update_all_bone_transforms()
 		feet[p] = _bone_pos(sk, "foot_r")
 		assert_true(_bone_pos(sk, "foot_l").distance_to(rest_l) < 0.001, "phase %.1f: the left leg stays on the clip" % p)
-	assert_true(feet[0.0].z < hip.z - 0.1, "start: the foot swings from behind the hip (%.2f vs %.2f)" % [feet[0.0].z, hip.z])
+	assert_true(feet[0.0].distance_to(rest_r) < 0.01, "start: eases off the clip, no one-frame snap (%.3f m)" % feet[0.0].distance_to(rest_r))
 	assert_true(feet[0.2].z > hip.z + 0.4 and feet[0.2].y > rest_r.y + 0.3, "contact: the foot is out in front and up (%s)" % str(feet[0.2] - hip))
 	assert_true(feet[1.0].distance_to(rest_r) < 0.01, "end: back on the clip (%.3f m)" % feet[1.0].distance_to(rest_r))
 	v.pose.kick_phase = -1.0
