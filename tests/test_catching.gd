@@ -80,6 +80,31 @@ func test_contested_ball_broken_up() -> void:
 	assert_true(not events.has("catch"), "no catch")
 	assert_eq(w.phase, World.Phase.DEAD, "dead")
 
+func _catch_at_left_sideline(receiver_x: float) -> World:
+	var w := _setup([[0, Athlete.Role.WR, Vector2(12.0, 26.0)]])
+	var qb := _qb(w)
+	qb.position = Vector2(5.0, 20.0)
+	assert_true(w.throw(qb.id, Vector2(-0.75, 38.0), 0.8), "pass heads across the sideline")
+	for i in 200:
+		if w.ball.position.x < -0.2 or w.phase == World.Phase.DEAD:
+			break
+		w.step({}, DT)
+	assert_true(w.ball.position.x < 0.0 and w.ball.state == Ball.State.IN_FLIGHT, "ball is across the line in flight")
+	w.athletes[2].position = Vector2(receiver_x, w.ball.position.y)
+	w.step({}, DT)
+	return w
+
+func test_ball_outside_sideline_can_be_caught_with_feet_in_bounds() -> void:
+	var w := _catch_at_left_sideline(0.55)
+	assert_true(events.has("catch") and w.ball.is_held_by(w.athletes[2].id), "an in-bounds receiver completes the catch")
+	assert_eq(w.phase, World.Phase.LIVE, "the receiver can run after the catch")
+
+func test_same_sideline_pass_is_incomplete_with_feet_out_of_bounds() -> void:
+	var w := _catch_at_left_sideline(-0.55)
+	assert_true(events.has("caught_out_of_bounds") and events.has("incomplete"), "receiver standing outside is incomplete")
+	assert_true(not events.has("catch") and w.ball.holder_id == -1, "no possession")
+	assert_eq(w.phase, World.Phase.DEAD)
+
 ## Sample at a fixed horizontal distance after a real release, so a tick crossing
 ## the five-yard boundary cannot move a case from one side to the other.
 func _short_pass_contact(distance: float, side: int, receiver_offset := 0.0, ruleset := "classic") -> World:

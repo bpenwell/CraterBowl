@@ -77,7 +77,9 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   the pass is batted incomplete. The offense spends the down at the original line of scrimmage.
 - Beyond that window, a lone defender intercepts only within `INT_RADIUS` (0.6 yd) at the ball's closest approach;
   otherwise it is a breakup.
-- A receiver (or defender) standing out of bounds can't complete the catch: incomplete.
+- Sideline catches use the receiver's ground position at contact (#338). The ball can be beyond the line
+  while an in-bounds receiver completes the catch. A receiver standing outside the boundary is incomplete.
+  A defender standing outside cannot complete an interception.
 - Control stays on your own athlete after a catch or handoff. Bots run with the ball when they have it.
 
 ### Run game
