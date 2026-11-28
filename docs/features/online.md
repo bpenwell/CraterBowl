@@ -26,6 +26,8 @@ Bots fill every empty slot, so a 1v1 friend game or a two-player casual queue st
 - **Enter** toggles ready. The host can press **3/5/7** for team size, **M** for classic/Chaosball, and **H** for the quarter length. Every match plays four quarters (#130); defaults are 7v7 and 2.5-minute quarters. See [clock rules](rules.md#clock-srcsimclockgd) for the duration choices.
 - Any settings change un-readies everyone except the host.
 - Hosting from the menu with Chaosball selected opens the lobby in Chaosball 3v3, whatever size was picked (`--host --mode=chaosball` does the same). The host can still press **M** to switch back to classic (#74).
+- The host can press **I** to toggle the in-flight pass landing marker for the match. The lobby shows its
+  current value. The option defaults to on and follows the same ready rules as the other host settings (#108).
 - Starts automatically when **every player is ready and at least 2 are present**. A host alone can't start a private match.
 - **Seats are capped at the match size** (both teams' slots: 3v3 = 6, 5v5 = 10, 7v7 = 14 players, host included; #54). A joiner beyond that is turned away and their screen shows `COULDN'T JOIN THE MATCH` with the reason (`Lobby full: 3v3 seats 6 players`). Nobody waits in a lobby they can never play from. There are no spectators yet (#20).
 - **The host can't shrink the match below the players already present.** Pressing 3/5 or M (Chaosball is 3v3) with too many players is refused, and the host lobby shows why (`Can't switch to 3v3: 7 players here, 6 seats. Someone has to leave first.`). Nobody is kicked. Growing the match is always allowed.

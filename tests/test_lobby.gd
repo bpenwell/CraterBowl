@@ -53,6 +53,25 @@ func test_settings_host_only_and_validated() -> void:
 	l.set_setting(1, "quarter_minutes", 2)
 	assert_true(not l.players[7]["ready"], "settings change clears ready")
 
+func test_pass_marker_defaults_on_and_round_trips_the_host_choice() -> void:
+	var l := Lobby.new()
+	l.add(1)
+	l.add(7)
+	assert_true(l.settings["pass_marker"], "pass marker is on by default")
+	assert_true(not l.set_setting(7, "pass_marker", false), "joiner cannot change the option")
+	assert_true(not l.set_setting(1, "pass_marker", 0), "requires a boolean")
+	assert_true(l.set_setting(1, "pass_marker", false))
+	assert_true(l.summary().contains("Pass marker off"), "setting is shown in the lobby")
+	var client := Lobby.new()
+	client.from_dict(bytes_to_var(var_to_bytes(l.to_dict())))
+	assert_eq(client.settings["pass_marker"], false, "host can turn the marker off for clients")
+	client.from_dict({"settings": {"pass_marker": "off"}})
+	assert_eq(client.settings["pass_marker"], true, "malformed option falls back to on")
+	client.from_dict({"settings": {}})
+	assert_eq(client.settings["pass_marker"], true, "missing option defaults on")
+	l.phase = Lobby.Phase.IN_GAME
+	assert_true(not l.set_setting(1, "pass_marker", true), "setting stays locked during the match")
+
 func test_lobby_serialization() -> void:
 	var l := Lobby.new()
 	l.code = "ABCDE-FGHJK"

@@ -71,6 +71,11 @@ static func time_to_height(v: Vector3, h0: float, h1: float, g: float = T.GRAVIT
 		return 0.0
 	return (v.z + sqrt(disc)) / g
 
+## Predict the ground contact from the current pass position and velocity.
+static func ground_landing(position: Vector3, velocity: Vector3, gravity: float) -> Vector2:
+	var seconds := time_to_height(velocity, position.z, 0.0, gravity)
+	return Vector2(position.x, position.y) + Vector2(velocity.x, velocity.y) * seconds
+
 ## Predict where a receiver moving at constant velocity will be when the ball arrives.
 static func lead_target(from: Vector3, rx_pos: Vector2, rx_vel: Vector2, power: float, g: float = T.GRAVITY) -> Vector2:
 	var target := rx_pos

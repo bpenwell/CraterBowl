@@ -59,7 +59,7 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - **The defense keeps a better result** (`Penalties.defense_declines`): an interception or lost fumble (including a
   return touchdown), a safety, a failed try or a turnover on downs stands, and the flag is declined. Otherwise the
   penalty is enforced and the play's result is wiped, touchdowns included.
-- **Enforcement:** the penalty is measured from the previous spot (the line of scrimmage). An offensive foul moves the
+- **Distance penalties:** yardage is measured from the previous spot (the line of scrimmage). An offensive foul moves the
   ball back, a defensive one forward. When the yardage is more than half the distance to the goal line it's walking
   toward, the ball goes **half the distance** instead. Spots clamp to the 1 like every other spot. The down is replayed
   (or spent, for loss-of-down fouls) with the line to gain unchanged; a 2-point try is replayed from further back. The
@@ -73,9 +73,15 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   - Only the throw moment counts. A lineman who releases downfield after the ball is out is legal; one who crossed
     before it is not.
   - A pass landing at or behind the line (a screen) is exempt.
-  - The zone lifts once the ball has been carried past the line (a run). A handoff behind the line doesn't lift it, so a
-    halfback pass with a lineman downfield is still a foul. Kick plays, Chaosball and free practice have no zone.
+  - The zone lifts once the ball has been carried past the line (a run). This also ends
+    [passing eligibility](offense.md#passing) for the down (#312). A handoff behind the line keeps the zone active,
+    so a halfback pass with a lineman downfield is still a foul. Kick plays, Chaosball and free practice have no zone.
   - Bot linemen respect the zone ([line-play.md](line-play.md#blocking-zone-253)).
+- **Intentional grounding (#254):** on a Classic scrimmage throw, an active, unengaged defender within 2.5 yd of
+  the passer forces a throw toward an eligible teammate. The teammate's current position or its projection to the
+  catch point must be within 5 yd of that point. Grounding spends the down at the release spot, clamped to the 1.
+  On fourth down the defense gets the better turnover spot. Chaosball, free practice and called kick plays use their
+  existing rules.
 - Offsides and false starts stay impossible by construction (the pre-snap neutral-zone clamp); that's the documented
   default on #7.
 
@@ -172,6 +178,9 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   length (the old halves marker) falls back to 2:30, a pre-quarters snapshot's half maps to Q1/Q3, and an old
   lobby's `"quarters": false` reads as quarters. 2.5 min was added to the quarter lengths so the default game keeps
   its 10 minutes; 2 (8 min) or 3 (12 min) would have changed pacing.
+- **Grounding is judged at release (#254).** Use the actual throw trajectory in both aim modes and give moving
+  receivers credit for their projected run. The passer learns about the foul immediately even if receivers later
+  change direction. Grounding takes priority if the same throw also has an ineligible lineman downfield.
 - **Penalties (#253).** The flag is thrown at the release and the play goes on; the penalty is enforced at the dead ball.
   Rejected: blowing the play dead at the throw (the defense loses its interception, and a ball dying in the air reads
   as a bug), and checking the zone every frame (it would flag legal run plays, where blocking downfield is the point).
@@ -216,8 +225,7 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - #91 Spike and kneel clock actions
 - #7 C05 Competitive rules: eligibility, grounding, blocking zone, QB slowdown
 - #253 Blocking zone and penalty flags (in review)
-- #312 A carrier who crossed the line can retreat and still throw a forward pass
-- #254 Intentional grounding under pressure
+
 - #8 C06 Spotting: forward progress, return yards, fumble variety (#103 out-of-bounds forward progress in review)
 - #16 B10 Overtime for tied games
 - #39 B08 Tuning data file editable without code

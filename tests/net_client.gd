@@ -40,6 +40,7 @@ var saw_lobby := false
 var lobby_size := 0
 var quarter_lobby_seen := false
 var quarter_clock_seen := false
+var pass_marker_off_in_lobby := false
 var lobby_code := ""
 var lead_samples := 0
 var was_locked := false     # C08d: joiner (defense) started in stance per host snapshot
@@ -50,18 +51,27 @@ var defense_recall_seen := false
 var sent_timeout := false
 var got_timeout_event := false
 var timeout_confirmed := false
+var requested_twins := false
+var saw_twins := false
 var requested_slants := false
 var called_run := false
 var snapped_run := false
 var sent_handoff := false
 var handoff_to := -1
 var remote_handoff_confirmed := false
+var sent_grounding_throw := false
+var got_grounding_flag := false
+var checked_retreated_keeper := false
 var xp_before := 0
 var games_before := 0
 var had_first_td := false
 var had_first_win := false
 var got_awards := false
 var got_summary := false
+var got_contested_interception := false
+var sideline_catch := false
+var sideline_incomplete := false
+var saw_grounded_breakup := false
 var shared_td_line := false   # the host Ann's touchdown sits in the name-keyed summary (#200)
 var host_loss := false      # #56 mode
 var armed_at := -1
@@ -108,6 +118,7 @@ func _on_lobby(st: Dictionary) -> void:
 		var settings: Dictionary = st.get("settings", {})
 		lobby_size = int(settings.get("size", 0))
 		quarter_lobby_seen = settings.get("quarters") == true and settings.get("quarter_minutes") == 3
+		pass_marker_off_in_lobby = st.get("settings", {}).get("pass_marker") == false
 		lobby_code = str(st.get("code", ""))
 		main.lobby_key(KEY_ENTER)   # ready up through the real lobby key path
 
@@ -130,6 +141,14 @@ func _on_event(n: String, _d: Dictionary) -> void:
 		got_timeout_event = true
 	if n == "handoff" and _d.get("by") == aid:
 		handoff_to = int(_d["to"])
+	if n == "interception" and _d.get("team") == 1 and (_d.get("at", Vector2.ZERO) as Vector2).y > 38.0:
+		got_contested_interception = true
+	if n == "catch" and (_d.get("at", Vector2.ZERO) as Vector2).x < 0.0:
+		sideline_catch = true
+	if n == "incomplete" and _d.get("reason") == "caught_out_of_bounds":
+		sideline_incomplete = true
+	if n == "flag" and _d.get("type") == "intentional_grounding":
+		got_grounding_flag = true
 	if n == "awards":
 		got_awards = true
 		check(main.player_name == "Ann" and not _d["xp"].has("Ann"),
@@ -221,9 +240,22 @@ func _physics_process(_dt: float) -> bool:
 		equipped_number = main.views[aid].number_text
 	if bad_snap_sent_at > 0 and f > bad_snap_sent_at + 90:
 		_test_remote_handoff()
+	if main.last_whistle == "BREAKUP" and main.world.phase == main.World.Phase.DEAD:
+		var b = main.world.ball
+		if b.holder_id < 0 and b.position.z > 0.3:
+			saw_grounded_breakup = saw_grounded_breakup or is_equal_approx(main.ball_view.position.y, main.pres.Football.RADIUS)
+	if remote_handoff_confirmed and not sent_grounding_throw and main.world.los_y == 42.0 and main.world.ball.is_held_by(aid):
+		main.pov_enabled = false
+		main.aim_point = Vector2(4.0, 22.0)
+		sent_grounding_throw = true
+		_key(KEY_J)
+	if remote_handoff_confirmed and not checked_retreated_keeper:
+		_check_retreated_keeper()
 	if f == 1500 or (remote_handoff_confirmed and got_awards and got_summary):
+		check(saw_grounded_breakup, "the client's elevated dead ball falls to turf after a breakup")
 		check(saw_lobby and lobby_size == 5 and lobby_code.length() == 11, "joined by code into the private lobby (5v5, code %s)" % lobby_code)
 		check(quarter_lobby_seen and quarter_clock_seen, "host lobby Q and H select three-minute quarters on both machines")
+		check(pass_marker_off_in_lobby and not main.lobby.settings["pass_marker"], "host I disables the pass marker on the client through match start")
 		check(aid >= 0, "readied up -> match started -> welcomed with athlete %d" % aid)
 		check(first_team == 1, "joiner initially placed on the opponent team")
 		check(main.match_size == 5 and main.world.athletes.size() == 10, "client adopted host's 5v5 (%d athletes)" % main.world.athletes.size())
@@ -249,9 +281,14 @@ func _physics_process(_dt: float) -> bool:
 		check(equipped_number == "88", "my equipped #88 round-tripped through the host (%s)" % equipped_number)
 		check(pick_rejected, "legacy slot request preserves the host assignment")
 		check(timeout_confirmed and got_timeout_event, "remote T decrements only its team's timeouts and broadcasts the event")
+		check(got_contested_interception, "the client receives the host's contested interception")
+		check(sideline_catch and sideline_incomplete, "client receives both sideline catch rulings from the host")
+		check(saw_twins, "remote QB's Twins Right choice returns in the host lineup")
 		check(requested_slants and called_run, "remote QB audibles from Slants to Inside Zone in the play picker")
 		check(remote_handoff_confirmed, "client QB hands off through G and sees the host's RB possession")
 		check(remote_handoff_confirmed and main.controlled_id == aid, "online QB keeps the same athlete after the handoff")
+		check(sent_grounding_throw and got_grounding_flag, "online J throw receives the host's grounding flag")
+		check(checked_retreated_keeper, "received the host's retreated keeper snapshot")
 		check(got_awards and main.profile.xp == xp_before + 100 and main.profile.games == games_before + 1,
 			"same-named losing client receives only its own 100 XP")
 		check(main.profile.achievements.has("first_td") == had_first_td
@@ -260,11 +297,22 @@ func _physics_process(_dt: float) -> bool:
 		var mine: Array = main.match_overview()["my_lines"]
 		check(got_summary and shared_td_line and not mine.any(func(l): return str(l).contains("1TD")),
 			"same-named client's Your game leaves out the host Ann's touchdown line (%s)" % str(mine))
-		check(mine.filter(func(l): return str(l).contains(" car ")) == ["QB: 1 car 7yd 0TD"],
+		# The earlier grounding fixture also records the local QB’s incomplete pass.
+		check(mine.filter(func(l): return str(l).contains(" car ")) == ["QB: 0/1 0yd 0TD 0INT | 1 car 7yd 0TD"],
 			"QB's Your game shows only the local player's fumbled keeper (%s)" % str(mine))
 		print("NET FLOW " + ("PASS" if ok else "FAIL"))
 		quit(0 if ok else 1)
 	return false
+
+func _check_retreated_keeper() -> void:
+	var world = main.world
+	if world.los_y != 37.0 or not world.ball.is_held_by(aid) or world.get_athlete(aid).position.y > world.los_y:
+		return
+	checked_retreated_keeper = true
+	check(world.ball_crossed_los and not main.can_pass() and not main.pov_active(),
+		"snapshot closes the passing preview behind the line after a keeper crosses")
+	_key(KEY_J)
+	check(not main.charging and world.ball.is_held_by(aid), "retreated online keeper presses J without starting a throw")
 
 func _test_remote_handoff() -> void:
 	var w = main.world
@@ -278,7 +326,12 @@ func _test_remote_handoff() -> void:
 		sent_timeout = true
 	if sent_timeout and main.series.clock.timeouts == [3, 2]:
 		timeout_confirmed = true
-	if timeout_confirmed and w.phase == w.Phase.PRESNAP:
+	if timeout_confirmed and w.phase == w.Phase.PRESNAP and not requested_twins:
+		main.do_action({"a": "formation", "f": w.Formation.TWINS_RIGHT})
+		requested_twins = true
+	if requested_twins and w.phase == w.Phase.PRESNAP and w.offensive_formation() == w.Formation.TWINS_RIGHT:
+		saw_twins = true
+	if saw_twins and w.phase == w.Phase.PRESNAP:
 		if not requested_slants:
 			requested_slants = _press_play_card("Slants")
 		elif not called_run and w.play_name == "Slants" and w.route_of.values().has("SLANT"):

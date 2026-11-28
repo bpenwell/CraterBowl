@@ -6,6 +6,7 @@ const Match := preload("res://src/sim/match.gd")
 const Roster := preload("res://src/sim/roster.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
 const AI := preload("res://src/sim/ai.gd")
+const Passing := preload("res://src/sim/passing.gd")
 const Penalties := preload("res://src/sim/penalties.gd")
 const T := preload("res://src/sim/tuning.gd")
 const DT := 1.0 / 60.0
@@ -118,8 +119,8 @@ func test_throw_before_the_lineman_crosses_is_legal_after_is_a_foul() -> void:
 	assert_eq(m2.world.flags.size(), 1, "ball thrown after he crossed: flag")
 
 func test_run_lifts_the_zone_but_a_handoff_does_not() -> void:
-	# The QB carries it past the line: a run. Linemen may block downfield for the rest of the down,
-	# even if he drifts back behind the line and throws (that throw is #312's problem).
+	# The QB carries it past the line: a run. The zone stays lifted and passing stays closed
+	# if he retreats behind the line (#312).
 	var m := _live()
 	var w := m.world
 	var qb := w.find_role(0, R.QB)
@@ -129,7 +130,10 @@ func test_run_lifts_the_zone_but_a_handoff_does_not() -> void:
 	assert_true(w.ball_crossed_los and not w.blocking_zone_active(), "run: zone lifted")
 	ol.position.y = w.los_y + 9.0
 	qb.position.y = w.los_y - 1.0
-	_pass(m)
+	w.step({}, DT)
+	assert_true(not w.blocking_zone_active(), "retreat keeps the zone lifted")
+	assert_true(not w.throw(qb.id, Vector2(qb.position.x, w.los_y + 15.0), 0.7),
+		"the retreated keeper cannot pass")
 	assert_true(w.flags.is_empty(), "no blocking-zone flag after a run")
 	# A handoff behind the line is not a run: a halfback pass with a lineman downfield is a foul.
 	var m2 := _live()
@@ -159,6 +163,80 @@ func test_kick_plays_and_chaosball_have_no_zone() -> void:
 	m.world.set_ruleset("classic")
 	m.world.kick_play = "punt"
 	assert_true(not m.world.blocking_zone_active(), "punt")
+
+func _press_grounding_passer(w: World, yards: float) -> Athlete:
+	var qb := w.find_role(0, R.QB)
+	var rusher := w.find_role(1, R.LB)
+	rusher.position = qb.position + Vector2(yards, 0.0)
+	return rusher
+
+func test_grounding_uses_pressure_and_eligible_receiver_at_release() -> void:
+	var target := Vector2(4.0, 20.0)
+	for pressure in [2.5, 2.51]:
+		var m := _live()
+		var w := m.world
+		var qb := w.find_role(0, R.QB)
+		_press_grounding_passer(w, pressure)
+		w.find_role(0, R.C).position = target
+		assert_true(w.throw(qb.id, target, 0.75), "throw under the pressure fixture")
+		assert_eq(w.flags.size(), 1 if pressure == 2.5 else 0, "pressure boundary %s" % pressure)
+		if not w.flags.is_empty():
+			var p: Dictionary = w.flags[0]
+			assert_eq(p["type"], "intentional_grounding")
+			assert_eq(p["spot"], qb.position.y)
+			assert_true(p["loss_of_down"] and not p["replay"])
+
+	for moving in [false, true]:
+		var m := _live()
+		var w := m.world
+		var qb := w.find_role(0, R.QB)
+		var receiver := w.find_role(0, R.WR)
+		_press_grounding_passer(w, 2.0)
+		receiver.position = target
+		if moving:
+			var origin := Vector3(qb.position.x, qb.position.y, T.RELEASE_HEIGHT)
+			var velocity := Passing.solve_velocity(origin, target, 0.75, w.gravity())
+			var flight := Passing.time_to_height(velocity, origin.z, T.CATCH_HEIGHT, w.gravity())
+			receiver.velocity = Vector2(-10.0, 0.0)
+			receiver.position -= receiver.velocity * flight
+			assert_true(receiver.position.distance_to(target) > 5.0, "legal moving target is outside the current radius")
+		assert_true(w.throw(qb.id, target, 0.75), "pass to receiver")
+		assert_true(w.flags.is_empty(), "ready or leading receiver keeps the pass legal")
+
+func test_grounding_enforcement_spends_down_at_release_spot() -> void:
+	for down in [2, 4]:
+		var m := _live()
+		var w := m.world
+		var qb := w.find_role(0, R.QB)
+		var release := qb.position.y
+		_press_grounding_passer(w, 2.0)
+		m.downs.down = down
+		var events := _events(m)
+		assert_true(w.throw(qb.id, Vector2(4, 20), 0.75))
+		_finish(m)
+		var out := m.next_play()
+		assert_eq(out["outcome"], "next_down" if down == 2 else "turnover_on_downs")
+		assert_near(m.downs.los, release if down == 2 else m.goal() - release, 0.001, "enforced at release spot")
+		assert_eq(m.downs.down, 3 if down == 2 else 1)
+		assert_eq(events.size(), 1)
+		if not events.is_empty():
+			var ruling: String = events[0]["ruling"]
+			assert_eq(ruling, "FLAG · INTENTIONAL GROUNDING · OFFENSE · SPOT FOUL · " +
+				("LOSS OF DOWN" if down == 2 else "TURNOVER ON DOWNS"))
+
+func test_grounding_excludes_disabled_pressure_and_other_rulesets() -> void:
+	for context in ["grounded", "chaosball", "punt", "practice"]:
+		var m := _live()
+		var w := m.world
+		var qb := w.find_role(0, R.QB)
+		var rusher := _press_grounding_passer(w, 2.0)
+		match context:
+			"grounded": rusher.recover_t = 1.0
+			"chaosball": w.set_ruleset("chaosball")
+			"punt": w.kick_play = "punt"
+			"practice": w.los_y = w.field.length + 20.0
+		assert_true(w.throw(qb.id, Vector2(4, 20), 0.75), context)
+		assert_true(w.flags.is_empty(), context + " produces no grounding flag")
 
 # --- enforcement -------------------------------------------------------------
 

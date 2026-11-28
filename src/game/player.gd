@@ -18,6 +18,7 @@ const RC := preload("res://src/game/render_cache.gd")
 const Pose := preload("res://src/game/art/athlete_pose.gd")
 const StumblePose := preload("res://src/game/art/stumble_pose.gd")
 const Ball := preload("res://src/sim/ball.gd")
+const TackleFall := preload("res://src/game/art/tackle_fall.gd")
 const Replay := preload("res://src/sim/replay.gd")
 ## A view that moves more than this (yards) in one tick teleported (new play, replay
 ## seek, swap): snap instead of gliding across the field.
@@ -123,6 +124,12 @@ var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
 var _role := ""
 var _hit_t := 0.0
+var fall    # tackle_fall.gd, built on the first tackle
+var _shadow: MeshInstance3D
+var chase_sim := false   # up after a tackle away from the sim spot: jogging back to it (interpolate)
+## Catch-up speed over the sim's own (yd/s) for chase_sim.
+const CHASE_SPEED := 4.0
+var _shadow_moved := false   # following a fallen body instead of sitting under the root
 var _release_t := 0.0
 var _cur := ""
 var _was_down := false
@@ -185,7 +192,8 @@ func _ready() -> void:
 	number_front = _number_label(chest, 0.205)
 	number_back = _number_label(chest, -0.205)
 	set_opponent(is_opponent)
-	add_child(_blob_shadow())
+	_shadow = _blob_shadow()
+	add_child(_shadow)
 	var shield_mesh := RC.sphere(0.5, 1.0)
 	var shield_mat := Mats.emissive(Color(0.3, 0.8, 1.0, 0.35), 0.9)
 	shield_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -342,6 +350,24 @@ func is_celebrating() -> bool:
 func hit() -> void:
 	_hit_t = 0.6
 
+## Tackled while carrying: go down hugging the ball (tackle_fall.gd). run = this athlete's
+## velocity, contact = the velocity the hit drives the contact point to (yd/s, world),
+## contact_h = the hit's height (yd). fumble: the ball came out, so he scrambles up sooner.
+func tackled(run: Vector3, impulse: Vector3, point: Vector3, fumble := false) -> void:
+	if pose == null or _skel == null:
+		hit()
+		return
+	if fall == null:
+		fall = TackleFall.new(self)
+	fall.start(run, impulse, point, fumble)
+
+func is_falling() -> bool:
+	return fall != null and fall.active
+
+## Where this athlete is on the ground: under the body while he's down (ring, blob shadow).
+func ground_position() -> Vector3:
+	return fall.ground_position() if is_falling() else Vector3(global_position.x, 0.0, global_position.z)
+
 ## Follow-through after the ball leaves the hand.
 func throw_release() -> void:
 	_release_t = 0.55
@@ -373,7 +399,9 @@ func ball_transform() -> Transform3D:
 ## The held ball in skeleton space: between both hands for a passer's hold, else the right palm.
 func ball_local(sk: Skeleton3D) -> Transform3D:
 	var held = pose.hold_ball(sk) if pose else null
-	return held if held != null else sk.get_bone_global_pose(sk.find_bone("hand_r")) * BALL_SOCKET
+	var at: Transform3D = held if held != null else sk.get_bone_global_pose(sk.find_bone("hand_r")) * BALL_SOCKET
+	var hug = pose.secure_ball(sk) if pose else null
+	return at.interpolate_with(hug, pose.secure) if hug != null else at
 
 ## True when an athlete `dist` yd from a camera with vertical FOV `fov_deg` is close
 ## enough on screen for a head turn to be seen.
@@ -403,14 +431,15 @@ func watches_now() -> bool:
 
 ## Heads track the ball (not the carrier's own; not while down, celebrating, too far from
 ## the camera to see, or when the athlete has no reason to watch it).
-func _update_look(delta: float, down: bool) -> void:
+func _update_look(delta: float, down: bool, diving: bool) -> void:
 	_look_decide_t -= delta
 	if _look_decide_t <= 0.0:
 		_look_decide_t = 1.0 / LOOK_DECIDE_HZ
 		var cam := get_viewport().get_camera_3d()
 		_look_wanted = cam != null and head_visible(global_position.distance_to(cam.global_position), cam.fov) and watches_now()
 		_catch_wanted = _look_wanted and _near_catch_point()
-	var looking := _look_wanted and look_node != null and ball_node == null and not down and celebrate_t <= 0.0
+	var watching := _look_wanted and look_node != null and ball_node == null and celebrate_t <= 0.0
+	var looking := watching and not down
 	var k := 1.0 - exp(-LOOK_K * delta)
 	if look_node != null and (looking or pose.look_weight > 0.0):   # also while fading out, so a fading head never points at an old spot
 		var target := look_node.global_position
@@ -421,7 +450,10 @@ func _update_look(delta: float, down: bool) -> void:
 	pose.look_weight = lerpf(pose.look_weight, 1.0 if looking else 0.0, k)
 	if pose.look_weight < 0.01 and not looking:
 		pose.look_weight = 0.0
-	_update_catch(delta, looking)
+	# A Classic receiver can catch while diving. The arms reach over the existing slide.
+	var dive_reach: bool = watching and diving and not athlete.is_grounded() \
+		and world != null and not world.is_chaos() and not world.kicked
+	_update_catch(delta, looking or dive_reach, dive_reach)
 
 ## Where a pass in flight comes down through height h (field x, y), on its way down. A
 ## pass that never climbs to h (a low line drive) uses where it lands. Same flight math as
@@ -445,13 +477,14 @@ func _near_catch_point() -> bool:
 	var cp := catch_point(b.position, b.velocity, world.gravity(), CATCH_HEIGHT)
 	return athlete.position.distance_to(cp) < CATCH_RANGE
 
-## Catch pose (#246): ready stance as the pass comes in (CATCH_LEAD), hands to the ball as it closes.
-func _update_catch(delta: float, looking: bool) -> void:
+## Catch pose (#246): ready stance as the pass comes in, hands to the ball as it closes.
+func _update_catch(delta: float, can_reach: bool, dive_reach: bool) -> void:
 	var chest := global_position + Vector3.UP * CATCH_HEIGHT
 	var catching: bool = (replay_flags & Replay.F_CATCH) != 0 and look_node != null if replay_flags >= 0 \
-		else _catch_wanted and looking and _pass_in_air() \
+		else _catch_wanted and can_reach and _pass_in_air() \
 		and look_node.global_position.distance_to(chest) < CATCH_LEAD * world.ball.velocity.length()
 	if catching:
+		pose.catch_twist = not (dive_reach if replay_flags < 0 else (replay_flags & Replay.F_DIVING) != 0)
 		var ball := look_node.global_position
 		pose.catch_target = _skel.global_transform.affine_inverse() * ball
 		pose.catch_reach = clampf((REACH_FAR - ball.distance_to(chest)) / (REACH_FAR - REACH_NEAR), 0.0, 1.0)
@@ -514,8 +547,9 @@ func _process(delta: float) -> void:
 	_vel = _vel.lerp(v, clampf(delta * 12.0, 0.0, 1.0))
 	var spd := Vector2(_vel.x, _vel.z).length()
 	var live := replay_flags < 0
-	var down: bool = (athlete.is_diving() or athlete.is_grounded()) if live else (replay_flags & 3) != 0
-	if spd > 0.4 and not down and not ((live and athlete.blocking) or _push):   # _push: last frame's
+	var diving: bool = athlete.is_diving() if live else (replay_flags & Replay.F_DIVING) != 0
+	var down: bool = diving or (athlete.is_grounded() or is_falling() if live else (replay_flags & Replay.F_GROUNDED) != 0)
+	if spd > 0.4 and not down and not ((live and athlete.blocking) or _push):
 		rotation.y = lerp_angle(rotation.y, atan2(-_vel.x, -_vel.z), clampf(delta * 14.0, 0.0, 1.0))
 	_hit_t = maxf(0.0, _hit_t - delta)
 	emote_t = maxf(0.0, emote_t - delta)
@@ -553,7 +587,7 @@ func _process(delta: float) -> void:
 			pose.push_weight = 0.0
 		if pose.push_clip and pose.push_weight > 0.0:
 			pose.push_time = fmod(pose.push_time + delta * PUSH_RATE, pose.push_clip.length)
-		_update_look(delta, down)
+		_update_look(delta, down, diving)
 	# Celebration flourishes on top of the dance.
 	body.rotation = Vector3.ZERO
 	body.position = Vector3(0.0, jump_pose.lift(), 0.0)
@@ -571,10 +605,19 @@ func _process(delta: float) -> void:
 		# Spin move: one full turn toward the spin side (left = counter-clockwise from above).
 		var k := 1.0 - spin_vis_t / T.SPIN_TIME
 		body.rotation.y = -float(spin_vis_side) * TAU * ease(k, -1.6)
+	if is_falling():
+		fall.update(delta)
+	if _shadow and (_shadow_moved or is_falling()):
+		_shadow_moved = is_falling()
+		_shadow.global_position = ground_position() + Vector3(0, 0.02, 0) if _shadow_moved else global_position + Vector3(0, 0.02, 0)
 
 func _choose_anim(spd: float, down: bool) -> void:
 	if celebrate_t > 0.0:
 		_play({"hop": "Jump", "flip": "Roll"}.get(celebrate_kind, "Dance"))
+		return
+	if is_falling():
+		if not fall.holding() and not fall.rising():   # hit-stop: keep the contact frame; getting up: tackle_fall plays it
+			_play("Idle", 0.1)   # under the ragdoll: only the neck and clavicles still follow a clip
 		return
 	if athlete.is_diving():
 		_play("u2/Slide_Start", 0.08, 1.6)
@@ -670,6 +713,9 @@ func _locomotion(spd: float, presnap: bool, backward := false) -> void:
 ## Record a new sim (or replay) pose, once per physics tick. Big jumps snap.
 func place(p: Vector3, yaw: float) -> void:
 	if not _has_pose or p.distance_to(_cur_pos) > TELEPORT_DIST:
+		if is_falling():
+			fall.stop()   # next play: back on his feet
+		chase_sim = false
 		_prev_pos = p
 		_prev_yaw = yaw
 		_has_pose = true
@@ -678,12 +724,24 @@ func place(p: Vector3, yaw: float) -> void:
 		_prev_yaw = _cur_yaw
 	_cur_pos = p
 	_cur_yaw = yaw
+	if is_falling() or chase_sim:
+		return   # the fallen body owns where it lies (moving the node would drag the physics bones)
 	position = p
 	rotation.y = yaw
 
 ## Per render frame (main._render_frame, before this node's _process):
 ## f = Engine.get_physics_interpolation_fraction() in [0, 1].
 func interpolate(f: float) -> void:
+	if is_falling():
+		return
+	if chase_sim:
+		# Back on his feet where he fell: run to where the sim has him, a bit faster than the
+		# sim moves. _process turns him to face the way he goes and picks the run clip from it.
+		var to := _prev_pos.lerp(_cur_pos, f)
+		var spd := _prev_pos.distance_to(_cur_pos) * Tick.HZ + CHASE_SPEED
+		position = position.move_toward(to, spd * get_process_delta_time())
+		chase_sim = position.distance_to(to) > 0.01
+		return
 	position = _prev_pos.lerp(_cur_pos, f)
 	rotation.y = lerp_angle(_prev_yaw, _cur_yaw, f)
 

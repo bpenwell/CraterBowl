@@ -22,6 +22,12 @@ const HOLD_POLE_L := Vector3(1.0, -1.0, -0.3)
 ## Hand orientation for the hold, in spine_03 space: fingers forward (bone +Y = +Z) and
 ## palms in (palm is -X of hand_r and +X of hand_l, so both map bone +X to spine -X).
 const HOLD_HAND_BASIS := Basis(Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 1, 0))
+## Securing the ball going down (tackle_fall.gd): both arms clamp it to the chest, elbows in.
+const SECURE_BALL := Vector3(0.0, -0.05, 0.2)
+const SECURE_WRIST_R := SECURE_BALL + Vector3(-0.15, -0.02, -0.05)
+const SECURE_WRIST_L := SECURE_BALL + Vector3(0.15, 0.02, -0.05)
+const SECURE_POLE_R := Vector3(-0.6, -1.0, -0.8)
+const SECURE_POLE_L := Vector3(0.6, -1.0, -0.8)
 
 ## Catch stance (#246), in the upright catch frame (see _upright): wrists up in front of the
 ## chest, palms forward. Upright, not the chest's own frame: a sprinting chest leans ~40 deg
@@ -81,11 +87,13 @@ const PUSH_TRACK_PREFIX := "Armature/Skeleton3D:"
 
 var weight := 0.0      # 0 = clip pose, 1 = full carry pose
 var two_hand := false  # passer holding before the throw
+var secure := 0.0      # going down: both arms clamp the ball to the chest, 0..1 (tackle_fall.gd)
 var look_target := Vector3.ZERO   # skeleton space
 var look_weight := 0.0            # 0 = clip's head, 1 = full look
 var catch_weight := 0.0           # 0 = no catch pose, 1 = full stance/reach
 var catch_target := Vector3.ZERO  # the ball, skeleton space
 var catch_reach := 0.0            # 0 = ready stance, 1 = hands on the ball
+var catch_twist := true           # keep the slide clip's torso during a diving reach
 var push_clip: Animation          # the Push clip (player.gd sets it); null: no push layer
 var push_weight := 0.0            # 0 = playing clip, 1 = Push clip on the upper body
 var push_time := 0.0              # s into push_clip
@@ -129,14 +137,15 @@ func apply(sk: Skeleton3D) -> void:
 	# The arms do one job: the stronger of catching and carrying (they cross over at the catch).
 	var catching := catch_weight > weight
 	_pre = Transform3D()
-	if catching:
+	if catching and catch_twist:
 		_plan_twist(sk)
 	if look_weight > 0.0:
 		_look(sk)
 	if catching:
 		_catch(sk)
-		sk.set_bone_pose_rotation(_bones.spine_02, _twist_q[0])
-		sk.set_bone_pose_rotation(_bones.spine_03, _twist_q[1])
+		if catch_twist:
+			sk.set_bone_pose_rotation(_bones.spine_02, _twist_q[0])
+			sk.set_bone_pose_rotation(_bones.spine_03, _twist_q[1])
 		return
 	if weight <= 0.0:
 		return
@@ -148,6 +157,12 @@ func apply(sk: Skeleton3D) -> void:
 		_open_hand(sk, "_l", weight)
 	else:
 		_reach(sk, "_r", chest * TUCK_HAND, chest.basis * TUCK_POLE, weight)
+	if secure > 0.0:   # on top of the hold, so letting go of the hug eases back into it
+		var palms := chest.basis * HOLD_HAND_BASIS
+		var ws := weight * secure
+		_reach(sk, "_r", chest * SECURE_WRIST_R, chest.basis * SECURE_POLE_R, ws, palms)
+		_reach(sk, "_l", chest * SECURE_WRIST_L, chest.basis * SECURE_POLE_L, ws, palms)
+		_open_hand(sk, "_l", ws)
 	_open_hand(sk, "_r", weight)
 
 ## Block push: the Push clip's upper-body bone rotations at push_time, blended by push_weight
@@ -305,6 +320,12 @@ func hold_ball(sk: Skeleton3D):
 	if not two_hand or weight <= 0.0 or not _rig_ok:
 		return null
 	return sk.get_bone_global_pose(_bones.spine_03) * Transform3D(Basis(), HOLD_BALL)
+
+## Where the ball sits in the going-down hug (skeleton space), or null when not hugging.
+func secure_ball(sk: Skeleton3D):
+	if secure <= 0.0 or weight <= 0.0 or not _rig_ok:
+		return null
+	return sk.get_bone_global_pose(_bones.spine_03) * Transform3D(Basis(), SECURE_BALL)
 
 func _blend(sk: Skeleton3D, bone: int, local: Basis, w: float) -> void:
 	var q := local.orthonormalized().get_rotation_quaternion()

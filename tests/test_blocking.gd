@@ -162,6 +162,24 @@ func test_bot_input_with_block_key_stays_bot() -> void:
 	_run(w, {ol.id: {"dir": Vector2.ZERO, "sprint": false, "block": false}}, 0.05)
 	assert_eq(dl.engaged_with, ol.id, "bot with block=false is not released like a human")
 
+## Face to face: a blocker behind or beside a defender running the same way never locks
+## on (the pair used to slide downfield together with arms out); one ahead of his path does.
+func test_no_block_from_behind_or_running_alongside() -> void:
+	for case in [["behind", Vector2(40, 24.4), false], ["alongside", Vector2(40.9, 25.5), false], ["ahead", Vector2(40, 26.4), true]]:
+		var w := _setup([[0, Athlete.Role.OL, case[1]], [1, Athlete.Role.DL, Vector2(40, 25.5)]])
+		var ol: Athlete = w.athletes[2]
+		var dl: Athlete = w.athletes[3]
+		ol.facing = (dl.position - ol.position).normalized()   # the blocker always faces him
+		dl.velocity = Vector2(0, 6.0)   # the defender runs upfield
+		w._step_blocks(_prev(w), {}, DT)   # the engagement rule alone, no movement
+		assert_eq(dl.engaged_with >= 0, case[2], "%s: engaged %s" % [case[0], dl.engaged_with])
+
+func _prev(w) -> Array:
+	var out := []
+	for a in w.athletes:
+		out.append(a.position)
+	return out
+
 func test_blocks_end_before_out_of_bounds_whistle() -> void:
 	var w := _engage_setup()
 	var blocker: Athlete = w.athletes[2]

@@ -15,6 +15,8 @@ const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
 const Penalties := preload("res://src/sim/penalties.gd")
 
 enum Phase { PRESNAP, LIVE, DEAD }
+enum Formation { BALANCED, TWINS_RIGHT }
+const FORMATION_NAMES := ["Balanced", "Twins Right"]
 
 signal event(name: String, data: Dictionary)
 
@@ -69,7 +71,7 @@ var kick_spot := Vector2.ZERO
 var fair_catch_id := -1  # returner who signaled a fair catch on this kick (#189), else -1
 var _kick_rest_t := 0.0
 var flags: Array = []            # penalty records thrown this down (#253; Penalties.make)
-var ball_crossed_los := false    # a runner took the ball past the LOS this down: the blocking zone lifts (#253)
+var ball_crossed_los := false    # a runner took the ball past the LOS this down (#253, #312)
 
 func _init() -> void:
 	_impact_rolls = 0
@@ -328,6 +330,32 @@ func receivers_in_order() -> Array:
 	if rb:
 		wrs.append(rb)
 	return wrs
+
+static func valid_formation(value) -> bool:
+	return value is int and value >= 0 and value < FORMATION_NAMES.size()
+
+func can_choose_formation(a: Athlete) -> bool:
+	return phase == Phase.PRESNAP and kick_play.is_empty() and not is_chaos() and a != null \
+		and a.team == offense_team and a.role == Athlete.Role.QB
+
+## The original left wideout lines up right of center only in Twins Right. Read the
+## received positions on clients, so a formation change needs no extra snapshot field.
+func offensive_formation() -> int:
+	var middle := field.width * 0.5
+	for a in athletes:
+		if a.team == offense_team and a.role == Athlete.Role.WR and a.home_x < middle:
+			return Formation.TWINS_RIGHT if a.position.x > middle else Formation.BALANCED
+	return Formation.BALANCED
+
+func choose_formation(by: Athlete, formation: int) -> bool:
+	if not can_choose_formation(by) or not valid_formation(formation):
+		return false
+	var middle := field.width * 0.5
+	for a in athletes:
+		if a.team == offense_team and a.role == Athlete.Role.WR:
+			var twins_x := T.TWINS_RIGHT_INNER_X if a.home_x < middle else T.TWINS_RIGHT_OUTER_X
+			a.position.x = a.home_x if formation == Formation.BALANCED else field.width * twins_x
+	return true
 
 func has_run_back() -> bool:
 	return not is_chaos() and find_role(offense_team, Athlete.Role.RB) != null
@@ -626,7 +654,7 @@ func can_throw(id: int) -> bool:
 	var a := get_athlete(id)
 	if a == null or phase != Phase.LIVE or not ball.is_held_by(id) or not a.can_act() or a.move_t > 0.0 or a.is_jumping():
 		return false
-	return rules["anyone_throws"] or (not forward_pass_thrown and a.position.y <= los_y)
+	return rules["anyone_throws"] or (not forward_pass_thrown and not ball_crossed_los and a.position.y <= los_y)
 
 ## Throw from the holder toward target (field plane) with power 0..1.
 func throw(id: int, target: Vector2, power: float, lob: bool = false, inherit_motion := true) -> bool:
@@ -653,7 +681,8 @@ func _launch(a: Athlete, v: Vector3, power: float, lob: bool) -> bool:
 	var id := a.id
 	var t_land := Passing.time_to_height(v, from.z, T.CATCH_HEIGHT, gravity())
 	var target := Vector2(from.x + v.x * t_land, from.y + v.y * t_land)
-	_check_blocking_zone(target)
+	if not _check_grounding(a, target, t_land):
+		_check_blocking_zone(target)
 	ball.state = Ball.State.IN_FLIGHT
 	ball.holder_id = -1
 	ball.position = from
@@ -796,6 +825,31 @@ func linemen_past_zone() -> Array:
 
 ## At a forward pass: flag illegal man downfield. A pass landing at or behind the line (a
 ## screen) is exempt, as in real football, since only passes that cross the line care.
+## A rushed throw away from eligible targets is a spot foul (#254).
+func _check_grounding(passer: Athlete, target: Vector2, flight: float) -> bool:
+	if not blocking_zone_active() or passer.team != offense_team:
+		return false
+	var pressured := false
+	var receiver_radius_sq := T.GROUNDING_RECEIVER_RADIUS * T.GROUNDING_RECEIVER_RADIUS
+	var pressure_radius_sq := T.GROUNDING_PRESSURE_RADIUS * T.GROUNDING_PRESSURE_RADIUS
+	for a in athletes:
+		if a.team != passer.team:
+			if a.can_act() and a.engaged_with < 0 and a.position.distance_squared_to(passer.position) <= pressure_radius_sq:
+				pressured = true
+			continue
+		if a == passer or not is_eligible_receiver(a) or field.zone_of(a.position) == Field.Zone.OUT_OF_BOUNDS:
+			continue
+		var projected: Vector2 = a.position + a.velocity * flight
+		if a.position.distance_squared_to(target) <= receiver_radius_sq or (
+			field.zone_of(projected) != Field.Zone.OUT_OF_BOUNDS and projected.distance_squared_to(target) <= receiver_radius_sq
+		):
+			return false
+	if not pressured:
+		return false
+	throw_flag(Penalties.make(Penalties.INTENTIONAL_GROUNDING, offense_team, true, maxf(1.0, passer.position.y),
+		0.0, passer.id, false, true))
+	return true
+
 func _check_blocking_zone(target: Vector2) -> void:
 	if not blocking_zone_active() or target.y <= los_y:
 		return
@@ -838,7 +892,13 @@ func _step_blocks(prev: Array, inputs: Dictionary, dt: float) -> void:
 			if not _can_be_blocked(d):
 				continue
 			var to: Vector2 = d.position - b.position
-			if to.length() <= T.ENGAGE_DIST and b.facing.dot(to.normalized()) >= T.ENGAGE_FACING_DOT:
+			var dir := to.normalized()
+			# Face to face: the blocker faces the defender, and a moving defender is heading at
+			# the blocker (his velocity, not facing: a standing athlete's facing can be stale).
+			# No blocks from behind or on a pair running side by side the same way.
+			var d_spd: float = d.velocity.length()
+			var heading_in: bool = d_spd < T.ENGAGE_FOE_MOVING or d.velocity.dot(-dir) >= T.ENGAGE_FOE_HEADING_DOT * d_spd
+			if to.length() <= T.ENGAGE_DIST and b.facing.dot(dir) >= T.ENGAGE_FACING_DOT and heading_in:
 				b.engaged_with = d.id
 				d.engaged_with = b.id
 				b.engage_t = 0.0
@@ -1218,18 +1278,24 @@ func _try_catch() -> bool:
 	var defender_contests: bool = best[1] != null and best[0] != null and best_d[1] <= best_d[0] + T.CONTEST_MARGIN
 	if best[0] == null and not defender_reaches:
 		return false
+	var short_pass := travel <= T.BATTED_PASS_MAX_TRAVEL
 	var lone_defender: bool = defender_reaches and best[0] == null
-	if defender_contests or (lone_defender and travel <= T.BATTED_PASS_MAX_TRAVEL):
+	var pick_wins_contest := false
+	if defender_contests and not short_pass:
+		# At joint reach, let the nearer player get their best contact before judging the gap.
+		var closer := 0 if best_d[0] <= best_d[1] else 1
+		var next_z := z + ball.velocity.z / Tick.HZ
+		if next_z <= T.CATCH_MAX_HEIGHT and _pass_is_closing_on(bp, best[closer].position, best_d[closer]):
+			return false
+		pick_wins_contest = best_d[1] <= T.INT_RADIUS and best_d[0] - best_d[1] > T.CONTEST_MARGIN
+	if (defender_contests and not pick_wins_contest) or (lone_defender and short_pass):
 		_end_incomplete("breakup", {"by": best[1].id, "at": at})
 		return true
-	if lone_defender:
+	if lone_defender or pick_wins_contest:
 		var dfn: Athlete = best[1]
-		# Only a defender squarely at the ball intercepts; within normal reach he deflects it.
-		# Decide at the ball's closest approach: keep flying while it's still getting closer.
+		# A defender outside clean interception reach can still deflect at closest approach.
 		if best_d[1] > T.INT_RADIUS:
-			var next := bp + Vector2(ball.velocity.x, ball.velocity.y) / Tick.HZ
-			var next_z := ball.position.z + ball.velocity.z / Tick.HZ
-			if next.distance_to(dfn.position) < best_d[1] and next_z >= T.CATCH_MIN_HEIGHT:
+			if _pass_is_closing_on(bp, dfn.position, best_d[1]):
 				return false
 			_end_incomplete("breakup", {"by": dfn.id, "at": at})
 			return true
@@ -1247,6 +1313,11 @@ func _try_catch() -> bool:
 	ball.hold(rx.id)
 	event.emit("catch", {"by": rx.id, "at": at})
 	return true
+
+func _pass_is_closing_on(from: Vector2, player: Vector2, distance: float) -> bool:
+	var next := from + Vector2(ball.velocity.x, ball.velocity.y) / Tick.HZ
+	var next_z := ball.position.z + ball.velocity.z / Tick.HZ
+	return next_z >= T.CATCH_MIN_HEIGHT and next.distance_to(player) < distance
 
 ## Chaosball: nearest standing player in reach catches (own pass allowed); no breakups.
 func _try_catch_chaos() -> bool:

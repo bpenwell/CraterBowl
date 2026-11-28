@@ -149,6 +149,52 @@ func test_fumbled_handoff_run_still_credits_the_carry_once() -> void:
 	assert_near(stats.get_line("Test", "RB").get("car", 0), 1)
 	assert_near(stats.get_line("Test", "RB").get("rush_yds", 0), 4)
 
+func _retreat_after_crossing(w: World, runner: Athlete) -> void:
+	runner.position = Vector2(6.0, w.los_y + 2.0)
+	w.step({}, DT)
+	runner.position.y = w.los_y - 3.0
+	w.step({}, DT)
+
+func test_keeper_cannot_pass_after_crossing_and_retreating() -> void:
+	var m := _match()
+	var w := m.world
+	_receive_snap(w)
+	var qb := w.find_role(0, R.QB)
+	assert_true(w.can_throw(qb.id))
+	_retreat_after_crossing(w, qb)
+	assert_true(w.ball_crossed_los and qb.position.y < w.los_y and w.ball.is_held_by(qb.id))
+
+	assert_true(not w.can_throw(qb.id))
+	assert_true(not w.throw_dir(qb.id, Vector2.DOWN, 20.0, 0.8), "POV pass rejected")
+	assert_true(not Protocol.apply_action(m, qb.id, {"a": "throw", "t": Vector2(13, 46), "p": 0.8}),
+		"host rejects the retreated runner's pass")
+	assert_true(w.ball.is_held_by(qb.id) and not w.forward_pass_thrown, "play continues as a run")
+
+	m.start(0, 36.0)
+	_receive_snap(w)
+	assert_true(not w.ball_crossed_los and w.can_throw(qb.id), "the next snap opens passing again")
+
+func test_handoff_runner_cannot_pass_after_crossing_and_retreating() -> void:
+	var w := _match().world
+	_receive_snap(w)
+	var qb := w.find_role(0, R.QB)
+	var back := w.find_role(0, R.RB)
+	back.position = qb.position + Vector2.RIGHT
+	assert_true(w.handoff(qb.id) and w.can_throw(back.id), "back can pass before crossing")
+	_retreat_after_crossing(w, back)
+	assert_true(w.ball_crossed_los and back.position.y < w.los_y)
+	assert_true(not w.throw(back.id, Vector2(13, 46), 0.8), "handoff runner cannot pass after crossing")
+	assert_true(w.ball.is_held_by(back.id))
+
+func test_chaosball_still_allows_a_pass_after_crossing_and_retreating() -> void:
+	var w := _match(3).world
+	w.set_ruleset("chaosball")
+	_receive_snap(w)
+	var qb := w.find_role(0, R.QB)
+	_retreat_after_crossing(w, qb)
+	assert_true(w.ball_crossed_los)
+	assert_true(w.throw(qb.id, Vector2(13, 46), 0.8), "Chaosball still permits the throw")
+
 func test_bots_execute_both_run_paths_and_engage_assigned_defenders() -> void:
 	var furthest_x := {}
 	for play in ["Inside Zone", "Outside Sweep"]:

@@ -257,6 +257,29 @@ func test_reach_closes_both_hands_on_the_ball() -> void:
 	assert_true(rs.dot(ls) < 0.0, "hands on opposite sides of the ball")
 	v.free()
 
+func test_diving_reach_keeps_the_slide_torso_and_legs() -> void:
+	var v = _view(Athlete.Role.WR)
+	var sk := _skel(v)
+	_pose(sk, v.anim.get_animation("u2/Slide_Start"), 0.26)
+	var clip_rotations := {}
+	for bone in ["spine_02", "spine_03", "thigh_r", "thigh_l"]:
+		clip_rotations[bone] = sk.get_bone_pose_rotation(sk.find_bone(bone))
+	var chest := Pose._upright(sk.get_bone_global_pose(sk.find_bone("spine_03")))
+	var ball := chest * Vector3(-0.28, 0.15, 0.45)
+	var original_distance := _bone_pos(sk, "hand_r").distance_to(ball)
+	v.pose.catch_twist = false
+	v.pose.catch_target = ball
+	v.pose.catch_reach = 1.0
+	v.pose.catch_weight = 1.0
+	v.pose.apply(sk)
+	sk.force_update_all_bone_transforms()
+
+	assert_true(_bone_pos(sk, "hand_r").distance_to(ball) < original_distance - 0.1, "the near hand reaches for the pass")
+	for bone in clip_rotations:
+		var rotation := sk.get_bone_pose_rotation(sk.find_bone(bone))
+		assert_true(rotation.is_equal_approx(clip_rotations[bone]), bone + " follows the slide")
+	v.free()
+
 func test_reach_never_stretches_the_arm() -> void:
 	var v = _view(Athlete.Role.WR)
 	var sk := _skel(v)

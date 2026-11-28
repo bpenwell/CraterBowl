@@ -13,6 +13,7 @@ const LosBarrier := preload("res://src/game/art/los_barrier.gd")
 const FieldArt := preload("res://src/game/art/field_art.gd")
 const KickArt := preload("res://src/game/kick_art.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
+const Passing := preload("res://src/sim/passing.gd")
 const TRAIL_LEN := 22
 
 var main: Node3D
@@ -31,9 +32,12 @@ var stick_b: Node3D
 var excite := 0.0
 var shake := 0.0
 var spin := 0.0
+var _dead_ball_start_y := -1.0
+var _dead_ball_fall_time := 0.0
 var _carrier = null   # view carrying the ball (player.gd), for the carry pose
 var _last_score := [0, 0]
 var barrier: LosBarrier
+var _pass_thrower := -1
 var kick_art: KickArt    # #68: kick power meter + kickoff tee
 var _ends_behind := 0    # #89: end painted behind the offense (FieldArt.orient_ends)
 var _period := 0         # #89: SWITCH ENDS banner on period change
@@ -65,6 +69,7 @@ func _ready() -> void:
 
 ## Rebuild per-field art (called from main.configure after the field exists).
 func rebuild(field_root: Node3D) -> void:
+	_pass_thrower = -1
 	stadium = Stadium.build(field_root, main.field, main.TEAM_COLORS)
 	chains = _build_chains(field_root)
 	if barrier and is_instance_valid(barrier):
@@ -75,6 +80,7 @@ func rebuild(field_root: Node3D) -> void:
 	_last_score = [0, 0]
 	_ends_behind = 0   # FieldArt.build paints HELIOS behind the offense
 	_period = 0
+	_dead_ball_start_y = -1.0
 
 func _ground_quad(n: String, size: float, shader: String) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -194,7 +200,10 @@ func on_event(n: String, d: Dictionary) -> void:
 			_dust(at, 22)
 			shake = maxf(shake, 0.35)
 			if id >= 0 and id < main.views.size():
-				main.views[id].hit()
+				if d.has("carrier"):
+					_tackle_fall(id, int(d.get("by", -1)))
+				else:
+					main.views[id].hit()
 		"touchdown":
 			excite = 1.0
 			shake = maxf(shake, 0.25)
@@ -202,15 +211,51 @@ func on_event(n: String, d: Dictionary) -> void:
 		"interception", "fumble":
 			excite = maxf(excite, 0.7)
 			shake = maxf(shake, 0.2)
+			var c := int(d.get("carrier", -1))
+			if n == "fumble" and c >= 0 and c < main.views.size():
+				_tackle_fall(c, int(d.get("by", -1)), true)   # stripped: down hard, then scrambles up
 		"catch":
 			excite = maxf(excite, 0.35)
+		"snap":
+			_pass_thrower = -1
 		"throw":
-			var by := int(d.get("by", -1))
-			if by >= 0 and by < main.views.size():
-				main.views[by].throw_release()
+			_pass_thrower = int(d.get("by", -1))
+			if _pass_thrower >= 0 and _pass_thrower < main.views.size():
+				main.views[_pass_thrower].throw_release()
 		"breakup":
 			_dust(_athlete_pos(int(d.get("by", -1))), 8)
 	overlay.on_event(n, d)
+
+## A tackled carrier's fall (tackle_fall.gd), from the collision: the tackler hits him at
+## CONTACT_HEIGHT on the side he came from, with an impulse of TACKLE_MASS times their closing
+## velocity. Every tackle is a dive (world.gd), which wraps the thighs.
+const TACKLE_MASS := 18.0   # the carrier's ragdoll weighs 82; tuned so a hit reads from the game camera
+const CONTACT_HEIGHT := 0.55   # yd
+
+func _tackle_fall(carrier: int, by: int, fumble := false) -> void:
+	var run := _sim_velocity(carrier)
+	if fumble:   # the sim already slowed him (world.gd _fumble): use how he was moving into the hit
+		run = main.views[carrier]._vel
+		run.y = 0.0
+	var at: Vector3 = main.views[carrier].global_position
+	var impulse := Vector3.ZERO   # no tackler (the carrier's own dive): he just goes down
+	var side := -run.normalized()
+	if main.world.get_athlete(by) != null:
+		impulse = (_sim_velocity(by) - run) * TACKLE_MASS
+		side = main.views[by].global_position - at
+		side.y = 0.0
+		side = side.normalized()
+	main.views[carrier].tackled(run, impulse, at + Vector3.UP * CONTACT_HEIGHT + side * 0.2, fumble)
+
+## The sim stops everyone at the whistle, before this event: fall back to how the view was
+## actually moving (smoothed over the last frames, so it holds the speed at contact).
+func _sim_velocity(id: int) -> Vector3:
+	var a = main.world.get_athlete(id)
+	var v := Vector3(a.velocity.x, 0.0, -a.velocity.y) if a != null else Vector3.ZERO
+	if v.length() < 0.5 and id >= 0 and id < main.views.size():
+		v = main.views[id]._vel
+		v.y = 0.0
+	return v
 
 func _athlete_pos(id: int) -> Vector3:
 	if id >= 0 and id < main.views.size():
@@ -344,6 +389,9 @@ func _update_ball(delta: float, w) -> void:
 		return
 	var b = w.ball
 	var st := int(b.state)
+	var unheld_dead_ball: bool = st == 3 and b.holder_id < 0
+	if not unheld_dead_ball:
+		_dead_ball_start_y = -1.0
 	var held_view = main.views[b.holder_id] if st in [0, 3] and b.holder_id >= 0 and b.holder_id < main.views.size() else null
 	if held_view != null and held_view.is_celebrating():
 		held_view = null
@@ -369,8 +417,17 @@ func _update_ball(delta: float, w) -> void:
 		spin += delta * 9.0
 		bv.basis = Basis(Vector3.UP, spin * 0.7) * Basis(Vector3.BACK, spin)
 		bv.position.y = maxf(bv.position.y, Football.RADIUS)   # the sim's ball centre is at z 0 on the ground
-	elif st == 3:   # dead, nobody holding it: lying on the spot, pointing downfield
+	elif st == 3:
 		bv.basis = Basis()
+		if unheld_dead_ball:
+			# Physics keeps the contact point for the ruling. On clients, the first
+			# rendered height may still come from the interpolated pass flight.
+			if _dead_ball_start_y < 0.0:
+				_dead_ball_start_y = maxf(bv.position.y, Football.RADIUS)
+				_dead_ball_fall_time = 0.0
+			_dead_ball_fall_time += delta
+			var fall: float = 0.5 * w.gravity() * _dead_ball_fall_time * _dead_ball_fall_time
+			bv.position.y = _dead_ball_start_y - fall
 		bv.position.y = maxf(bv.position.y, Football.RADIUS)
 	# Trail while airborne. (Skip the GPU re-upload when there's no trail at all.)
 	if trail_pts.is_empty() and st != 1:
@@ -399,18 +456,16 @@ func _update_ball(delta: float, w) -> void:
 			trail_mesh.surface_set_color(Color(1.0, 0.95, 0.75, 0.55 * f))
 			trail_mesh.surface_add_vertex(p - side * wdt)
 		trail_mesh.surface_end()
-	# Predicted landing spot for passes in flight.
-	landing.visible = false
-	if st == 1:
-		var g: float = w.gravity()
-		var vz: float = b.velocity.z
-		var z: float = b.position.z
-		var disc := vz * vz + 2.0 * g * z
-		if g > 0.0 and disc >= 0.0:
-			var t := (vz + sqrt(disc)) / g
-			var p := Vector2(b.position.x, b.position.y) + Vector2(b.velocity.x, b.velocity.y) * t
-			landing.position = Vector3(p.x, 0.04, -p.y)
-			landing.visible = true
+	landing.visible = st == 1 and (not w.forward_pass_thrown or _can_see_pass_marker(w))
+	if landing.visible:
+		var p := Passing.ground_landing(b.position, b.velocity, w.gravity())
+		landing.position = Vector3(p.x, 0.04, -p.y)
+
+func _can_see_pass_marker(w) -> bool:
+	# The reliable throw event identifies the passer to clients. A snapshot can arrive first.
+	var viewer = w.get_athlete(main.my_id)
+	return main.lobby.settings["pass_marker"] and _pass_thrower >= 0 and viewer != null \
+		and viewer.id != _pass_thrower and w.is_eligible_receiver(viewer)
 
 var _ring_team := -1
 
@@ -418,7 +473,7 @@ func _update_rings(w) -> void:
 	var pv: Node3D = main.player
 	ring.visible = pv != null
 	if pv:
-		ring.position = Vector3(pv.global_position.x, 0.035, pv.global_position.z)
+		ring.position = pv.ground_position() + Vector3(0, 0.035, 0)   # under the body, also while he's down
 		var tc: Color = main.TEAM_COLORS[pv.athlete.team]
 		if pv.athlete.team != _ring_team:
 			_ring_team = pv.athlete.team
