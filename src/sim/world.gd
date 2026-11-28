@@ -937,7 +937,8 @@ func _check_trips() -> void:
 					best = sev
 					by = o
 		var tier := trip_tier(best)
-		if tier != Athlete.Stumble.NONE:
+		# A lighter contact late in a stumble never downgrades it (a bobble would give the sprint back).
+		if tier != Athlete.Stumble.NONE and not (r.is_stumbling() and tier < r.stumble_tier):
 			r.trip(tier)
 			event.emit("stumble", {"id": r.id, "by": by.id, "tier": tier})
 

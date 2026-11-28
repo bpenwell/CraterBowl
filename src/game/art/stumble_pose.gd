@@ -17,6 +17,7 @@ const ARMS_OUT := deg_to_rad(28.0)      # 40 read as "jazz hands" in the prototy
 const ARMS_FWD := deg_to_rad(18.0)
 const ANIM_DIP := 0.4          # the run clip slows by up to this at the peak
 const SPINE := ["spine_01", "spine_02", "spine_03"]
+const ARMS := [["upperarm_l", 1.0], ["upperarm_r", -1.0]]   # bone, side (+ = the athlete's left)
 
 var weight := 0.0   # 0 = upright, 1 = peak of a STUMBLE
 var free_r := 1.0   # 0 while the right arm carries the ball or reaches for a pass
@@ -41,9 +42,8 @@ func follow(athlete, replay_flags: int, delta: float) -> void:
 	var left := 0.0
 	var step := Tick.DT
 	if replay_flags >= 0:
-		var st := Replay.stumble_of(replay_flags)
-		tier = st[0]
-		left = st[1]
+		tier = Replay.stumble_tier_of(replay_flags)
+		left = Replay.stumble_left_of(replay_flags)
 		step = Replay.FRAME_EVERY * Tick.DT
 	elif athlete != null and athlete.get("stumble_t") != null and athlete.stumble_t > 0.0:
 		tier = athlete.stumble_tier
@@ -81,10 +81,10 @@ func apply(sk: Skeleton3D) -> void:
 	for n in SPINE:
 		_turn(sk, _bones[n], lean)
 	_turn(sk, _bones.Head, Basis(Vector3.RIGHT, -HEAD_UP * weight))
-	for side in [["upperarm_l", 1.0, free_l], ["upperarm_r", -1.0, free_r]]:
-		var k: float = weight * side[2]
+	for arm in ARMS:
+		var k: float = weight * (free_l if arm[1] > 0.0 else free_r)
 		if k > 0.0:
-			_turn(sk, _bones[side[0]], Basis(Vector3.BACK, ARMS_OUT * k * side[1]) * Basis(Vector3.RIGHT, -ARMS_FWD * k))
+			_turn(sk, _bones[arm[0]], Basis(Vector3.BACK, ARMS_OUT * k * arm[1]) * Basis(Vector3.RIGHT, -ARMS_FWD * k))
 
 ## Rotate `bone` by `r` (skeleton space, about the bone's own origin) on top of its pose.
 func _turn(sk: Skeleton3D, bone: int, r: Basis) -> void:

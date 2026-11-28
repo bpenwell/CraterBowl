@@ -185,6 +185,22 @@ func test_two_bodies_one_stumble() -> void:
 	assert_true(w.get_athlete(0).position.y > 51.2, "crossed both")
 	assert_eq(_stumbles().size(), 1, "two bodies within 0.5 s: one stumble")
 
+## A bobble-grade contact in the last moments of a stumble (immunity over) never downgrades it.
+func test_lighter_contact_never_downgrades_a_stumble() -> void:
+	var w := _world(Vector2(CX, 49.0))
+	var c := w.get_athlete(0)
+	_lie(w.get_athlete(2), Vector2(CX, 50.0), Vector2(0, 1))   # along: a bobble on its own
+	c.trip(S.STUMBLE)
+	c.stumble_t = 0.1
+	c.trip_immune_t = 0.0
+	_run(w, RUN_UP, 4 * DT)
+	assert_true(w.get_athlete(0).position.distance_to(Vector2(CX - 0.0, 50.0)) <= T.TRIP_REACH, "on the body while still stumbling")
+	assert_eq(_stumbles().size(), 0, "no bobble event over a stumble")
+	assert_eq(c.stumble_tier, S.STUMBLE, "still a stumble (no sprint)")
+	_run(w, RUN_UP, 0.2)
+	assert_true(c.stumble_tier != S.STUMBLE, "the stumble runs out on time")
+	assert_true(_stumbles().size() <= 1, "a fresh bobble may follow once it's over")
+
 ## Accept 6: a STUMBLE cancels a dash and locks spin/dash/dive/jump for STUMBLE_LOCK.
 func test_stumble_cancels_dash_and_locks_moves() -> void:
 	var w := _world(Vector2(CX, 48.4))

@@ -4,6 +4,7 @@ extends "res://src/sim/player_motion.gd"
 enum Role { QB, C, WR, RB, LB, CB, S, OL, DL }
 ## Stumble tiers (#389). Wire and replay values: keep the order. TRIP (falls) is phase 3 (#391).
 enum Stumble { NONE, BOBBLE, STUMBLE, TRIP }
+const Tick := preload("res://src/sim/tick.gd")
 
 var id: int = 0
 var team: int = 0
@@ -76,9 +77,10 @@ func stumble_mult() -> float:
 	var lo := T.BOBBLE_FLOOR if stumble_tier == Stumble.BOBBLE else T.STUMBLE_FLOOR
 	return lerpf(lo, 1.0, smoothstep(0.0, 1.0, 1.0 - stumble_t / stumble_time(stumble_tier)))
 
-## No spin, dash, dive or jump for STUMBLE_LOCK after a STUMBLE starts.
+## No spin, dash, dive or jump for STUMBLE_LOCK after a STUMBLE starts. Compared in whole ticks:
+## the host's countdown is an accumulated float, the client's is ticks/60 from the snapshot.
 func stumble_locked() -> bool:
-	return stumble_tier >= Stumble.STUMBLE and stumble_t > T.STUMBLE_TIME - T.STUMBLE_LOCK
+	return stumble_tier >= Stumble.STUMBLE and roundi(stumble_t * Tick.HZ) > roundi((T.STUMBLE_TIME - T.STUMBLE_LOCK) * Tick.HZ)
 
 ## Start a stumble (World._check_trips decides the tier). A STUMBLE cancels a dash.
 func trip(tier: int) -> void:

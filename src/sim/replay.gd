@@ -127,10 +127,17 @@ static func stumble_bits(tier: int, t: float) -> int:
 		return 0
 	return (tier << F_STUMBLE_SHIFT) | (mini(roundi(t * Tick.HZ), F_STUMBLE_TICK_MAX) << F_STUMBLE_TICK_SHIFT)
 
-## [tier, s left] of the stumble recorded in replay `flags`; tier 0 when none.
+## The Athlete.Stumble tier recorded in replay `flags` (0 when none).
+static func stumble_tier_of(flags: int) -> int:
+	return (flags >> F_STUMBLE_SHIFT) & 3
+
+## Seconds left of the stumble recorded in replay `flags` (0 when none).
+static func stumble_left_of(flags: int) -> float:
+	return float((flags >> F_STUMBLE_TICK_SHIFT) & F_STUMBLE_TICK_MAX) / Tick.HZ if stumble_tier_of(flags) != 0 else 0.0
+
+## [tier, s left] (tests and tools; the view reads the two above, no array per frame).
 static func stumble_of(flags: int) -> Array:
-	var tier := (flags >> F_STUMBLE_SHIFT) & 3
-	return [tier, float((flags >> F_STUMBLE_TICK_SHIFT) & F_STUMBLE_TICK_MAX) / Tick.HZ if tier != 0 else 0.0]
+	return [stumble_tier_of(flags), stumble_left_of(flags)]
 
 ## The next capture() call records a frame.
 func frame_due() -> bool:

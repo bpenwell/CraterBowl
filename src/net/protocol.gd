@@ -28,7 +28,7 @@ static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
 		flags |= (BLOCK_FLAG if ath.blocking else 0) | (SPIN_FLAG if ath.is_spinning() else 0)
 		if ath.is_spinning() and ath.spin_dir < 0:
 			flags |= SPIN_LEFT_FLAG
-		flags |= roundi(ath.jump_t * 1000.0) << JUMP_SHIFT
+		flags |= mini(roundi(ath.jump_t * 1000.0), JUMP_MASK) << JUMP_SHIFT
 		if ath.stumble_t > 0.0:
 			flags |= (ath.stumble_tier << STUMBLE_TIER_SHIFT) | (mini(roundi(ath.stumble_t * Tick.HZ), 255) << STUMBLE_TICK_SHIFT)
 		r.append_array([ath.role, flags, ath.team])
