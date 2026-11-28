@@ -31,6 +31,7 @@ step lint ./scripts/lint.sh
 step unit ./scripts/test.sh
 step perf ./scripts/perf.sh
 if [ "${1:-}" != "--fast" ]; then
+  step smoke-timeout bash tests/smoke_flow_timeout_test.sh
   step smoke ./scripts/smoke.sh
 fi
 echo "CHECK PASS ($(( $(date +%s) - start ))s${1:+ $1})"

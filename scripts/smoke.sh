@@ -17,9 +17,15 @@ if grep -E "SCRIPT ERROR|Parse Error|ERROR:|at: " .smoke-output.log | grep -q .;
   echo "SMOKE FAIL: errors during boot"; exit 1
 fi
 echo "SMOKE PASS ($FRAMES frames)"
-# Scripted gameplay flow through the real scene
-timeout 150 "$GODOT" --headless --path . --fixed-fps 60 -s res://tests/game_flow.gd > .flow-output.log 2>&1
+# Scripted gameplay flow through the real scene. Leave headroom for concurrent Godot jobs (#406).
+GAME_FLOW_TIMEOUT="${GAME_FLOW_TIMEOUT:-240}"
+timeout "$GAME_FLOW_TIMEOUT" "$GODOT" --headless --path . --fixed-fps 60 -s res://tests/game_flow.gd > .flow-output.log 2>&1
 flow=$?
+if [ "$flow" -eq 124 ]; then
+  tail -20 .flow-output.log
+  echo "GAME FLOW FAIL: timed out after ${GAME_FLOW_TIMEOUT}s (log: .flow-output.log)"
+  exit 1
+fi
 grep -E "FLOW|GAME FLOW" .flow-output.log
 if [ $flow -ne 0 ] || grep -E "SCRIPT ERROR|Parse Error|$MESH_NULL" .flow-output.log | grep -q .; then
   grep -E "SCRIPT ERROR|Parse Error|$MESH_NULL|at: " .flow-output.log | head; echo "GAME FLOW FAIL"; exit 1

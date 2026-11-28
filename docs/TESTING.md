@@ -29,7 +29,12 @@ archives and runs `bash tests/ci_setup_test.sh` to check setup failures without 
 | `lint` | `tools/lint.gd` compiles every `.gd` (src, tests, tools); grep rules: no default-tessellation primitive meshes in `player.gd`, no engine/time/random calls in `src/sim` | parse errors in files no test loads; perf anti-patterns; sim purity breaks (determinism, server safety) |
 | `unit` | `tests/test_*.gd` via `tests/run_tests.gd` | rule/sim regressions. Includes `test_determinism.gd` (two 7v7 and Chaosball bot games stay bit-identical) and `test_render_perf.gd` (view interpolation, cache sharing, low-poly primitives) |
 | `perf` | `tests/render_budget.gd` (triangles, instances, shadow casters, materials, skinned meshes in the real scene: counts, so they never flake) plus `tools/bench.gd` (median per-tick CPU, object growth) | order-of-magnitude slowdowns, per-frame allocation leaks. Budgets: `docs/optimization/README.md` §4 |
+| `smoke-timeout` | `bash tests/smoke_flow_timeout_test.sh`, a disposable gameplay process that hangs or fails an assertion | timeout diagnostics |
 | `smoke` | boot 300 frames, `tests/game_flow.gd`, `tests/menu_flow.gd`, net, matchmaking (casual and competitive), user-data guard | anything player-facing end to end |
+
+Gameplay flow has a 240-second hang guard to leave room for concurrent Godot jobs (#406).
+A timeout prints the last 20 lines of `.flow-output.log` and its own failure message.
+Set `GAME_FLOW_TIMEOUT` in seconds to exercise the timeout path.
 
 **User data is isolated.** `check.sh` points `XDG_DATA_HOME` at a fresh temp dir, so `user://`
 for every test process is throwaway. Tests can't touch the player's saves or settings, and the user
