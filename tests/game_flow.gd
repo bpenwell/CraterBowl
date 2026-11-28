@@ -341,7 +341,10 @@ func _initialize() -> void:
 		[7970, func():
 			check(main.world.phase == main.World.Phase.LIVE and main.series.clock.remaining < 60.0, "play stays live below 1:00")
 			check(not main.pres.overlay.banner.visible, "timeout banner clears on the snap")
-			check(main.pres.overlay.timeout_pips[0].is_visible_in_tree() and main.pres.overlay.timeout_pips[0].text == "●○", "live scorebug shows remaining timeouts")
+			var meter = main.pres.overlay.timeout_meters[0]
+			check(meter.is_visible_in_tree() and meter.limit == 2 and meter.left == 1 and meter.is_available(0) and not meter.is_available(1),
+				"live scorebug meter: one bar lit, one used after the real T (#133)")
+			check(main.pres.overlay.timeout_meters[1].left == 2, "the other team's meter is untouched")
 			var overlay = main.pres.overlay
 			check(overlay.field_strip.is_visible_in_tree() and overlay.play_clock_l.text == "",
 				"the field strip remains live and the play clock clears on snap")

@@ -19,7 +19,7 @@ match starts, the screens show the score and the configured game clock.
 | You | A team-colored ground ring marks the athlete you control. Nothing floats above your head. | `presentation.gd` |
 | Camera | Follow camera behind your player. The mouse moves the aim range on the turf; the mouse wheel zooms it 0.6x–1.6x, middle click resets (#140, saved in settings). Your ground ring always stays above the scorebug (#128). While you're the passer, an over-the-shoulder POV that keeps the line and backs in frame. | `src/game/main.gd` `_update_camera`, `_framed_look`, `_camera_target_yaw` |
 | Effects | Camera shake on big events, tackle dust, touchdown fireworks, crowd excitement, jumbotron | `presentation.gd` |
-| Overlay | Scorebug (team logos, possession, score, period and game clock, play clock, down and distance, timeout pips, ball spot and mini field), status line, play-call picker, movement meters, hold-Tab scoreboard (flanked by the team logos, with the match mode and size), event banners | `src/game/overlay.gd` |
+| Overlay | Scorebug (team logos, possession, score, period and game clock, play clock, down and distance, timeout bars, ball spot and mini field), status line, play-call picker, movement meters, hold-Tab scoreboard (flanked by the team logos, with the match mode and size), event banners | `src/game/overlay.gd` |
 | Play art | Routes, run paths, blocking targets and coverage drawn on the turf before the snap | `offense.md`, `defense.md` |
 | Quality | `--gfx=low\|medium\|high`. Software rasterizers (llvmpipe etc.) auto-select `low`. | `src/game/art/quality.gd` |
 
@@ -77,6 +77,8 @@ lobby, match intro and game overview are #235, and on the jumbotron #135.
 **Audio today:** only the menu soundtrack. It plays `assets/music/tracks.json` in order, loops the playlist, and has a "now playing" widget (prev / pause / next). Credits are in `assets/music/CREDITS.md`. Volume follows the music and master settings. A match plays no SFX, crowd or whistle (#22).
 
 ## Design decisions
+
+- **Timeouts are drawn bars, not text pips (#133).** The owner asked for "slightly bigger" indicators with real enabled/disabled art instead of something that reads as a period. The old 11 px `●○` label drew ~7 px dots that read as punctuation at HUD scale. `src/game/timeout_meter.gd` draws one rounded 16×7 px bar per timeout the match allows (`clock.timeout_limit`: 3, or 2 in 3v3) under each team code, with `draw_style_box`, so no art file or `.import` exception is needed. **Available** bars are filled in the team color with a lighter 2 px top edge (lit). **Used** bars are a hollow 1 px white outline at 38% over a near-transparent fill (dim). Spending a timeout flashes the bar white for 0.6 s, shrinking back from 2 px larger. That is the only per-frame work, and the meter runs `_process` only while the flash plays. Otherwise it redraws only when the count, limit or color changes. Gaining timeouts (halftime) and the first state a meter sees never flash. Layout keeps #116/#233 intact. The meter *reserves* only 38 px, the narrowest team code in Teko 22 (ECL/SEL), and is exactly as tall as the old pip label (17 px). The three bars span 56 px, and the extra 18 px is drawn past that footprint into the empty space under the score, below the digits' baseline. So the team cell never widens, and the bug keeps its 744 px width and its height in every state. Tried first: a 56 px footprint, which pushed the bug to 751 px. Then 10×7 bars inside 38 px, which kept the width but read as the same dots, just colored. Rejected: a stopwatch or hand-T icon, which is unreadable at 7–10 px, and SVG/PNG art, which adds an import exception for a shape `StyleBoxFlat` already draws crisply. Hidden in drills, as before.
 
 - Both skinned uniforms use a small culling margin around the imported bounds. The margin keeps the body visible when a close camera follows the knockback pose (#173).
 - **Original look only.** It's a sci-fi lunar dome, never Gridiron's art or UI. Assets must be CC0 or compatible-license, logged in `ASSETS.md`.
@@ -150,6 +152,7 @@ lobby, match intro and game overview are #235, and on the jumbotron #135.
   - `tests/visual/camera_framing_test.gd` (#128) projects your ring to the screen and asserts it sits above the scorebug pre-snap on defense, every frame of a backpedal at max aim range, and at a sack's whistle; and that every offensive teammate within 8 yd of the QB is whole in the pre-snap POV. `tests/test_main_scene.gd` checks `_framed_look` across camera distances, FOVs, aim ranges and lag.
   - `tests/test_camera_zoom.gd` (#140) covers the wheel step, both clamps, easing, the limits' clearance from the player and stands, and settings persistence. `tests/game_flow.gd` frames 12300-12390 drive the real wheel and middle-click handler pre-snap and live, check the saved file, and that POV aim, the taunt wheel and replays ignore it. `tests/visual/camera_zoom_test.gd` captures the same pre-snap at 0.6x, 1.0x and 1.6x (ring above the scorebug at each) plus 1.6x on the own 1.
   - `tests/test_teams.gd` (#233) checks that there are 8+ teams with unique ids, names and 3-letter codes and none is a real nickname, that every logo loads as a 512 px square PNG with a transparent background and mipmaps, that the defaults are still HELIOS/NEBULA with unchanged colors, and that the overlay's scorebug and Tab-board logos come from the roster. `tests/visual/team_logos_test.gd` holds Tab through the real input handler and checks that each logo sits inside the bug, left of its score, and that the logos flank the Tab board without covering its text. It captures `team-logos-scorebug` and `team-logos-tab-board`.
+  - `tests/visual/timeout_meter_test.gd` (#133) asserts one bar per allowed timeout per team, each bar's on-screen pixel (team color when available, dim when used), the 744 px bug width at 3/3, 2/3 and 0/3, a meter footprint no wider than any roster team code, the meter exactly as tall as the old 11 px pip label (so the bug keeps its height), bars inside the bug and clear of the logo and possession mark, no `●○` text left on the bug, a flash only when a timeout is spent, and the meters hidden in drills. It captures `timeouts-3-3`, `timeouts-2-3` and `timeouts-0-3` (the last with two-digit scores). `tests/game_flow.gd` frame 7970 checks the meter after a real T-key timeout in 3v3 (one lit, one used).
   - `tests/visual/hud_polish_test.gd` asserts the fixed scorebug width (presnap, live, whistle), the dead-ball summary, the status pill clearing the scorebug, the themed picker pinned top-right and the meters beside the bug.
   - `tests/test_athlete_pose.gd` (#244) samples the real Sprint and Idle clips: the tucked hand stays within 0.25 m of the chest (the plain sprint doesn't), a passer's hands sit on opposite sides of the ball (each 0.12–0.3 m from its center), weight 0 leaves the arm untouched, hands on the ball open (curl less than half the fist's) while a free hand stays a fist, the throw release drops the pose at once, and the palm socket sits in the hand with the ball's long axis along the forearm. `tests/game_flow.gd` frames 39 (QB pre-throw) and 7900 (RB after the handoff) check in the live scene that the pose is on and the ball sits in the palm socket in the same frame.
   - `tests/visual/football_test.gd` (#159) asserts the ball is built at size (long axis Z, pointed ends, unit node scale), the QB's wrists sit on opposite sides of the ball within 6 cm of it, and the carrier's ball sits in the right palm along the forearm; it captures `football-sockets` (the ball from four sides, the QB hold and the carry). `tests/game_flow.gd` frames 90 and 92 check a pass in flight points along its velocity at unit scale and spirals; frame 400 checks a dead ball lies on its side on the turf.
@@ -163,18 +166,16 @@ lobby, match intro and game overview are #235, and on the jumbotron #135.
 ## Open issues
 - #247 Hold left click to reach: larger catch radius while held
 - #160 Uniform quality pass: jersey/pads materials, numbers, team colors
-- #173 Skinned athlete vanishes in close-ups during Hit_Knockback (culled by rest-pose AABB)
 - #10 C10 Throw readability: landing marker, aim-zoom
 - #12 C31 Who's who on the field: nameplates, rings, "you" marker
 - #22 C16 Audio foundation + live play feed
 - #38 B06 Juice: hit-stop, screenshake, crowd stingers (the coin-toss roar's sound)
-- #250 Fireworks timers outlive a freed match scene (`Lambda capture ... was freed`)
 - #31 Team voice chat (team-only, host-relayed)
 - #34 C33 Team identity: names, colors, field branding, "ball on <TEAM> 19"
-- #38 B06 Juice: hit-stop, screenshake, crowd stingers
 - #43 C28 Commentary barks
 - #44 C29 Events and variety: weather, time of day, rotating modes
 - #228 POV passer camera: your own ring sits behind the scorebug
 - #272 Follow camera behind your own goalposts: the uprights cut across the view near your end line
 - #234 Team picker: host picks teams in the lobby, random for vs-bots, synced over the protocol
 - #235 Team logos on the lobby/match intro and game overview/POTG
+- #413 Scorebug: two-digit scores crowd the team code

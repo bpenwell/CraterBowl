@@ -16,6 +16,7 @@ const Penalties := preload("res://src/sim/penalties.gd")
 var PICKER_POOL := maxi(Routes.PLAY_NAMES.size() + Routes.RUN_NAMES.size() + 2, DefensivePlaybook.CALLS.size() + 1)
 const Teams := preload("res://src/sim/teams.gd")
 const TeamLogos := preload("res://src/game/art/team_logos.gd")
+const TimeoutMeter := preload("res://src/game/timeout_meter.gd")
 ## The two teams on the bug (#233): team 0 = HELIOS, team 1 = NEBULA until the team picker
 ## (#234) calls set_teams(). Names/codes come from src/sim/teams.gd, not literals.
 var team_ids: Array = Teams.DEFAULT_IDS.duplicate()
@@ -43,7 +44,7 @@ var bug: PanelContainer
 var team_score: Array = []   # Label per team
 var team_tab: Array = []     # ColorRect per team
 var poss: Array = []         # possession pip per team
-var timeout_pips: Array[Label] = []
+var timeout_meters: Array[Control] = []   # #133: drawn available/used bars, one per timeout
 var clock_l: Label
 var down_l: Label
 var play_clock_l: Label
@@ -162,9 +163,10 @@ func _build_scorebug() -> void:
 		name_l.text = TEAM_ABBR[t]
 		_abbr_l.append(name_l)
 		team_label.add_child(name_l)
-		var pips := _label(11, Color(0.85, 0.92, 1.0), 700)
-		timeout_pips.append(pips)
-		team_label.add_child(pips)
+		var meter := TimeoutMeter.new()
+		meter.name = "TimeoutMeter%d" % t
+		timeout_meters.append(meter)
+		team_label.add_child(meter)
 		cell.add_child(team_label)
 		var sc := _label(30, Color.WHITE, 800)
 		sc.custom_minimum_size.x = 34
@@ -525,8 +527,8 @@ func refresh(main, delta: float) -> void:
 		(team_tab[t] as ColorRect).color = main.TEAM_COLORS[t]
 		(team_score[t] as Label).text = str(s.score[t])
 		(poss[t] as Label).modulate.a = 1.0 if w.possession_team() == t and not final else 0.0
-		timeout_pips[t].visible = main.drill == null
-		timeout_pips[t].text = "●".repeat(s.clock.timeouts[t]) + "○".repeat(s.clock.timeout_limit - s.clock.timeouts[t])
+		timeout_meters[t].visible = main.drill == null
+		timeout_meters[t].set_state(s.clock.timeouts[t], s.clock.timeout_limit, main.TEAM_COLORS[t])
 	clock_l.text = "FINAL" if final else ("" if main.drill != null else s.clock.label())
 	down_l.text = _down_text(main)
 	var pc: int = s.play_clock_shown()   # #136: the value the snap obeys, or -1 = hidden
