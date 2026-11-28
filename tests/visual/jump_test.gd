@@ -74,7 +74,8 @@ func _run() -> void:
 	await capture("jump_landing")
 
 	# #425: a running landing goes straight back into the run; the standing squat used to
-	# slide along the turf at run speed for ~12 frames.
+	# slide along the turf at run speed for ~12 frames. (Landing and stopping still squats:
+	# the gate reads the speed he lands into, and a stopped squat doesn't slide.)
 	game.input_override = Vector2(0, 1)
 	for i in 40:
 		await physics_frame
@@ -94,7 +95,13 @@ func _run() -> void:
 			break
 	check(landed >= 0, "lands")
 	check(squat == 0, "running landing: no standing squat (%d frames of Jump_Land)" % squat)
-	check(view._cur in ["Sprint", "Jog_Fwd", "Run"] or view._cur.begins_with("Jog") or view._cur.begins_with("Sprint"), "running landing: back in the run clip (%s)" % view._cur)
+	check(view._cur in ["Sprint", "Jog_Fwd"], "running landing: back in the run clip (%s)" % view._cur)
+	# The follow camera is still easing after the runner: frame him with a fixed rig instead.
+	var cam := Camera3D.new()
+	root.add_child(cam)
+	cam.global_position = view.global_position + Vector3(4.0, 1.6, 0.0)
+	cam.look_at(view.global_position + Vector3.UP * 0.9)
+	cam.make_current()
 	await capture("jump_running_landing")
 	finish()
 
