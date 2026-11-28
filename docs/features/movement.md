@@ -73,6 +73,10 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
 - For code that blends into a jump (#361): `Athlete.is_jumping()`, `jump_progress()` (0 takeoff to 1 landing),
   `jump_height()` (yards) and `jump_t` (seconds left). The view plays the UAL `Jump_Start`, `Jump` (the looping tuck) and
   `Jump_Land` clips and lifts the body on its own display-rate clock.
+  A landing above `LAND_SQUAT_MAX_SPEED` (2.5 yd/s) goes straight back into the run: `Jump_Land` is a
+  standing squat, and at run speed it slid along the turf (#425).
+  A ball carrier in the air secures the ball with both hands (`athlete_pose` `secure`, as in a tackle
+  fall): the `Jump` loop held his free arm stiffly out (#425).
 
 ### Dive tackle
 - **F** launches a dive in your facing direction at `DIVE_SPEED` (11 yd/s) for `DIVE_TIME` (0.35 s), about 3.9 yd.
@@ -104,7 +108,7 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
 - Tests: `tests/test_player_motion.gd`, `tests/test_live_controls.gd`, `tests/test_tackling.gd`,
   `tests/test_turnovers.gd`, `tests/test_jump.gd`, `tests/test_controls.gd` (default keys, saved-binding migration),
   `tests/game_flow.gd` (R and E consume charges, R without a charge does nothing, F dives, Space jumps and a chained jump costs more),
-  `tests/visual/jump_test.gd` (takeoff, peak and landing poses), `tests/menu_flow.gd` (rebinding, gamepad).
+  `tests/visual/jump_test.gd` (takeoff, peak and landing poses; a running landing has no `Jump_Land` frame and is back in the run clip, capture `jump_running_landing`), `tests/menu_flow.gd` (rebinding, gamepad).
 
 ## Open issues
 - #5 C03 Movement moveset: jump, dive, dash, spin, stiff-arm

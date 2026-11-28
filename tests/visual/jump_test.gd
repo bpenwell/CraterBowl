@@ -2,6 +2,7 @@ extends "res://tests/visual/harness.gd"
 ## #379 jump: in live play the real Space key hops the controlled player. Three named
 ## frames counted from the key press (no wall clock): takeoff (Jump_Start, small lift),
 ## peak (the rig's looping "Jump" clip, body lifted ~JUMP_HEIGHT) and landing (Jump_Land right after touchdown).
+## A running landing skips the squat and goes back into the run (#425).
 ## Real main scene, real key path, real sim; the defense holds still and the player stands
 ## alone in the backfield. The camera settles before the jump (#124).
 
@@ -63,6 +64,17 @@ func _run() -> void:
 	check(view._cur == "Jump", "peak: looping Jump clip (%s)" % view._cur)
 	check(view.body.position.y > 0.7, "peak: body lifted near JUMP_HEIGHT (%.2f)" % view.body.position.y)
 	check(view.anim.current_animation == view._cur, "peak: the rig plays %s (%s)" % [view._cur, view.anim.current_animation])
+	# #425: the carrier secures the ball with both hands in the air (the loop held the free arm out).
+	check(view.pose.secure > 0.9, "peak: both hands secure the ball (%.2f)" % view.pose.secure)
+	var sk: Skeleton3D = view._skel
+	var hands := {}
+	var grab := func() -> void:   # as drawn: Godot restores the clip pose after the modifiers
+		hands["l"] = sk.global_transform * sk.get_bone_global_pose(sk.find_bone("hand_l")).origin
+	view.pose.modification_processed.connect(grab, CONNECT_ONE_SHOT)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var free_hand: float = hands.get("l", Vector3.INF).distance_to(game.ball_view.global_position)
+	check(free_hand < 0.3, "peak: the free (left) hand is on the ball, not out to the side (%.2f m)" % free_hand)
 	await capture("jump_peak")
 
 	await _after(LANDING_FRAME - PEAK_FRAME - 1)
@@ -71,6 +83,37 @@ func _run() -> void:
 	check(is_zero_approx(view.body.position.y), "landing: no lift left (%.2f)" % view.body.position.y)
 	check(view.anim.current_animation == view._cur, "landing: the rig plays %s (%s)" % [view._cur, view.anim.current_animation])
 	await capture("jump_landing")
+
+	# #425: a running landing goes straight back into the run; the standing squat used to
+	# slide along the turf at run speed for ~12 frames. (Landing and stopping still squats:
+	# the gate reads the speed he lands into, and a stopped squat doesn't slide.)
+	game.input_override = Vector2(0, 1)
+	for i in 40:
+		await physics_frame
+	check(me.velocity.length() > view.jump_pose.LAND_SQUAT_MAX_SPEED, "running (%.1f yd/s)" % me.velocity.length())
+	_key(KEY_SPACE)
+	check(me.is_jumping(), "Space jumps on the run")
+	var squat := 0
+	var landed := -1
+	for i in 60:
+		await physics_frame
+		await process_frame
+		if not me.is_jumping() and landed < 0:
+			landed = i
+		if landed >= 0 and view._cur == "Jump_Land":
+			squat += 1
+		if landed >= 0 and i >= landed + 3:
+			break
+	check(landed >= 0, "lands")
+	check(squat == 0, "running landing: no standing squat (%d frames of Jump_Land)" % squat)
+	check(view._cur in ["Sprint", "Jog_Fwd"], "running landing: back in the run clip (%s)" % view._cur)
+	# The follow camera is still easing after the runner: frame him with a fixed rig instead.
+	var cam := Camera3D.new()
+	root.add_child(cam)
+	cam.global_position = view.global_position + Vector3(4.0, 1.6, 0.0)
+	cam.look_at(view.global_position + Vector3.UP * 0.9)
+	cam.make_current()
+	await capture("jump_running_landing")
 	finish()
 
 func _key(code: int) -> void:

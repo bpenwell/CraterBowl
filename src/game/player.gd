@@ -577,6 +577,12 @@ func _process(delta: float) -> void:
 		pose.push_weight = lerpf(pose.push_weight, 1.0 if _push else 0.0, 1.0 - exp(-CARRY_K * delta))
 		if pose.push_weight < 0.01 and not _push:
 			pose.push_weight = 0.0
+		if not is_falling():   # tackle_fall.gd owns the hug while he goes down
+			# In the air with the ball, both hands secure it: the Jump loop held the free arm out (#425).
+			var hug := 1.0 if live and ball_node != null and jump_pose.vis_t > 0.0 else 0.0
+			pose.secure = lerpf(pose.secure, hug, 1.0 - exp(-CARRY_K * delta))
+			if pose.secure < 0.01 and hug == 0.0:
+				pose.secure = 0.0
 		if pose.push_clip and pose.push_weight > 0.0:
 			pose.push_time = fmod(pose.push_time + delta * PUSH_RATE, pose.push_clip.length)
 		_update_look(delta, down, diving)
