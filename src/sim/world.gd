@@ -1225,18 +1225,24 @@ func _try_catch() -> bool:
 	var defender_contests: bool = best[1] != null and best[0] != null and best_d[1] <= best_d[0] + T.CONTEST_MARGIN
 	if best[0] == null and not defender_reaches:
 		return false
+	var short_pass := travel <= T.BATTED_PASS_MAX_TRAVEL
 	var lone_defender: bool = defender_reaches and best[0] == null
-	if defender_contests or (lone_defender and travel <= T.BATTED_PASS_MAX_TRAVEL):
+	var pick_wins_contest := false
+	if defender_contests and not short_pass:
+		# At joint reach, let the nearer player get their best contact before judging the gap.
+		var closer := 0 if best_d[0] <= best_d[1] else 1
+		var next_z := z + ball.velocity.z / Tick.HZ
+		if next_z <= T.CATCH_MAX_HEIGHT and _pass_is_closing_on(bp, best[closer].position, best_d[closer]):
+			return false
+		pick_wins_contest = best_d[1] <= T.INT_RADIUS and best_d[0] - best_d[1] > T.CONTEST_MARGIN
+	if (defender_contests and not pick_wins_contest) or (lone_defender and short_pass):
 		_end_incomplete("breakup", {"by": best[1].id, "at": at})
 		return true
-	if lone_defender:
+	if lone_defender or pick_wins_contest:
 		var dfn: Athlete = best[1]
-		# Only a defender squarely at the ball intercepts; within normal reach he deflects it.
-		# Decide at the ball's closest approach: keep flying while it's still getting closer.
+		# A defender outside clean interception reach can still deflect at closest approach.
 		if best_d[1] > T.INT_RADIUS:
-			var next := bp + Vector2(ball.velocity.x, ball.velocity.y) / Tick.HZ
-			var next_z := ball.position.z + ball.velocity.z / Tick.HZ
-			if next.distance_to(dfn.position) < best_d[1] and next_z >= T.CATCH_MIN_HEIGHT:
+			if _pass_is_closing_on(bp, dfn.position, best_d[1]):
 				return false
 			_end_incomplete("breakup", {"by": dfn.id, "at": at})
 			return true
@@ -1254,6 +1260,11 @@ func _try_catch() -> bool:
 	ball.hold(rx.id)
 	event.emit("catch", {"by": rx.id, "at": at})
 	return true
+
+func _pass_is_closing_on(from: Vector2, player: Vector2, distance: float) -> bool:
+	var next := from + Vector2(ball.velocity.x, ball.velocity.y) / Tick.HZ
+	var next_z := ball.position.z + ball.velocity.z / Tick.HZ
+	return next_z >= T.CATCH_MIN_HEIGHT and next.distance_to(player) < distance
 
 ## Chaosball: nearest standing player in reach catches (own pass allowed); no breakups.
 func _try_catch_chaos() -> bool:

@@ -147,6 +147,40 @@ func test_chaos_short_defensive_catch_still_swings_possession() -> void:
 	assert_eq(w.phase, World.Phase.LIVE)
 	assert_eq(w.possession_team(), 1)
 
+## Start at the first contested sample, with the pass still closing on both athletes.
+func _timed_contest(receiver_x: float, defender_x: float, catch_y := 40.0, closing_gap := 0.7) -> World:
+	var w := _setup([[0, Athlete.Role.WR, Vector2(8, 20)], [1, Athlete.Role.CB, Vector2(45, 20)]])
+	var qb := _qb(w)
+	qb.position = Vector2(26.0, 20.0)
+	w.athletes[0].position.x = 3.0
+	w.athletes[2].position = Vector2(26.0 + receiver_x, catch_y)
+	w.athletes[3].position = Vector2(26.0 + defender_x, catch_y)
+	assert_true(w.throw(qb.id, Vector2(26, catch_y), 0.8))
+	w.ball.position = Vector3(26.0, catch_y - closing_gap - 12.0 * DT, T.CATCH_HEIGHT)
+	w.ball.velocity = Vector3(0.0, 12.0, 0.0)
+	w.step({}, DT)
+	return w
+
+func test_contest_waits_for_a_clear_winner_at_closest_contact() -> void:
+	for direction in [-1.0, 1.0]:
+		var receiving := _timed_contest(0.0, direction * 0.95, 40.0, 1.15)
+		assert_eq(receiving.ball.state, Ball.State.IN_FLIGHT, "the joint reach alone can't end the play")
+		_run(receiving, {}, 0.25)
+		assert_true(events.has("catch") and receiving.ball.is_held_by(receiving.athletes[2].id), "receiver wins down the middle")
+		var defending := _timed_contest(direction * 0.95, 0.0)
+		assert_eq(defending.ball.state, Ball.State.IN_FLIGHT, "defender waits for clean contact")
+		_run(defending, {}, 0.25)
+		assert_true(events.has("interception") and defending.ball.is_held_by(defending.athletes[3].id), "defender wins from the better spot")
+
+func test_timed_contest_tie_and_short_tip_are_breakups() -> void:
+	var tied := _timed_contest(-0.5, 0.5)
+	assert_eq(tied.ball.state, Ball.State.IN_FLIGHT, "a deep tie reaches its closest sample")
+	_run(tied, {}, 0.25)
+	assert_true(events.has("breakup") and not events.has("catch") and not events.has("interception"), "neither player wins the tie")
+	var short_tip := _timed_contest(0.95, 0.0, 24.0)
+	assert_eq(short_tip.phase, World.Phase.DEAD, "the short tip ends on first contact")
+	assert_true(events.has("breakup") and not events.has("interception"), "short tip never turns into a pick")
+
 func test_out_of_bounds_catch_incomplete() -> void:
 	var w := _setup([[0, Athlete.Role.WR, Vector2(-1.0, 40)]])
 	w.throw(_qb(w).id, Vector2(-1.0, 40), 0.9)

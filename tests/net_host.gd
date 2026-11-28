@@ -94,6 +94,7 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.event.disconnect(_finish_after_handoff)
 	# Let the joiner observe the handoff before setting up the final score.
 	await create_timer(0.5).timeout
+	_send_contested_interception()
 	await _send_sideline_results()
 	await _show_dead_ball_drop()
 	_record_retreated_keeper()
@@ -113,6 +114,23 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.phase = main.World.Phase.DEAD
 	main.series.last_result = {"type": "incomplete"}
 	main.next_play()
+
+## Resolve the live sim race against a receiver and let its event reach the client.
+func _send_contested_interception() -> void:
+	main.series.start(0, 25.0)
+	var w = main.world
+	var qb = w.find_role(0, main.Athlete.Role.QB)
+	for a in w.athletes:
+		a.position = Vector2(4.0, 22.0 + 3.0 * a.id)
+	qb.position = Vector2(20.0, 20.0)
+	w.find_role(0, main.Athlete.Role.WR).position = Vector2(20.95, 40.0)
+	w.find_role(1, main.Athlete.Role.CB).position = Vector2(20.0, 40.0)
+	w.start_live_with(qb.id)
+	assert(w.throw(qb.id, Vector2(20.0, 40.0), main.T.PLAYER_PASS_POWER))
+	for tick in 90:
+		if w.ball.state != w.Ball.State.IN_FLIGHT:
+			break
+		w.step({}, 1.0 / w.Tick.HZ)
 
 ## Same airborne pass, opposite rulings based on where the receiver stands.
 func _send_sideline_results() -> void:

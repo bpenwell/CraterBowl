@@ -71,8 +71,10 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
 - Automatic. Candidates are eligible players within `CATCH_RADIUS` (1.2 yd) while the ball is between
   `CATCH_MIN_HEIGHT` and `CATCH_MAX_HEIGHT` (0.3 to 2.6 yd). C and OL are ineligible; the thrower can't catch his own pass.
 - The ball can't be caught or touched for its first `MIN_PASS_TRAVEL` (2.5 yd).
-- Defenders reach `CONTEST_MARGIN` (0.35 yd) further. If the nearest defender is within that margin of the nearest
-  receiver's distance, it is a breakup.
+- Defenders can contest from `CONTEST_MARGIN` (0.35 yd) further away. Beyond the short-tip window, a contested
+  ball keeps flying while it closes on the nearer athlete. A receiver who beats the
+  defender by more than the margin completes the catch. A defender who wins by that margin and gets inside
+  `INT_RADIUS` can intercept. A tight contest or a defensive touch outside interception reach is a breakup (#339).
 - In Classic, when a defender wins the contact within `BATTED_PASS_MAX_TRAVEL` (5 yd horizontally from release),
   the pass is batted incomplete. The offense spends the down at the original line of scrimmage.
 - Beyond that window, a lone defender intercepts only within `INT_RADIUS` (0.6 yd) at the ball's closest approach;
@@ -109,7 +111,8 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   block here). Charge is distance, so the zoom is tightest exactly when the target is far away. A fixed zoom on any
   hold would have hidden the near field on short, quick throws.
 - Reach-volume catching over physics collision: deterministic and server friendly. A catch button is #9.
-- The contest margin makes body position matter: a defender doesn't need to be closer, only close enough.
+- The contest waits for the nearest athlete's best contact sample. That gives a receiver or defender who lined
+  up with the pass a chance to beat the contest margin before an ordinary-reach breakup is called (#339).
 - The first 2.5 yd give the passer room to release in traffic. From there through 5 yd a reachable defensive
   touch can end the down as a breakup (#337). A clean defensive catch farther downfield can still be picked off.
 - Linear receiver lead threw curls and outs to empty grass; bots lead along the route path.
@@ -130,6 +133,6 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   `tests/test_turnovers.gd` (interceptions), `tests/test_bots.gd`, `tests/game_flow.gd` (real J/Q/G/Space keys).
 
 ## Open issues
-- #9 C07 Catch rules: sideline catches (#338), reach input (#247), contested catches (#339) and dive/jump catches (#340)
+- #9 C07 Catch rules: sideline catches (#338), reach input (#247), and dive/jump catches (#340)
 - #10 C09 Offense depth: formations, audibles, hot routes, pre-snap motion
 - #11 C10 Throw readability: landing marker, aim-zoom (aim-zoom shipped as #109)

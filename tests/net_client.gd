@@ -68,6 +68,7 @@ var had_first_td := false
 var had_first_win := false
 var got_awards := false
 var got_summary := false
+var got_contested_interception := false
 var sideline_catch := false
 var sideline_incomplete := false
 var saw_grounded_breakup := false
@@ -140,6 +141,8 @@ func _on_event(n: String, _d: Dictionary) -> void:
 		got_timeout_event = true
 	if n == "handoff" and _d.get("by") == aid:
 		handoff_to = int(_d["to"])
+	if n == "interception" and _d.get("team") == 1 and (_d.get("at", Vector2.ZERO) as Vector2).y > 38.0:
+		got_contested_interception = true
 	if n == "catch" and (_d.get("at", Vector2.ZERO) as Vector2).x < 0.0:
 		sideline_catch = true
 	if n == "incomplete" and _d.get("reason") == "caught_out_of_bounds":
@@ -278,6 +281,7 @@ func _physics_process(_dt: float) -> bool:
 		check(equipped_number == "88", "my equipped #88 round-tripped through the host (%s)" % equipped_number)
 		check(pick_rejected, "legacy slot request preserves the host assignment")
 		check(timeout_confirmed and got_timeout_event, "remote T decrements only its team's timeouts and broadcasts the event")
+		check(got_contested_interception, "the client receives the host's contested interception")
 		check(sideline_catch and sideline_incomplete, "client receives both sideline catch rulings from the host")
 		check(saw_twins, "remote QB's Twins Right choice returns in the host lineup")
 		check(requested_slants and called_run, "remote QB audibles from Slants to Inside Zone in the play picker")

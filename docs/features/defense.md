@@ -44,7 +44,8 @@ can't move at all before the snap. Tackling is in
     Cover 2 in 3v3/5v5 uses the safety plus the right-side CB (both CBs with no safety). Deep Zone also sends CBs deep.
   - Goal-line shell: every zone at `DEFENSE_GOAL_DEPTH` (4 yd). Prevent shell: deep at `DEFENSE_PREVENT_DEPTH` (25), others 18.
 - **Ball in the air:** the two nearest defenders break to the landing point; other zone players hold their spots; man
-  defenders play the receiver's hands without sprinting.
+  defenders play the receiver's hands without sprinting. At a longer contested catch, a defender who lines up
+  squarely with the ball can intercept by winning the closest-contact margin. See [catching](offense.md#catching).
 
 ### Pre-snap stance and roam
 - Everyone lines up set (`set_lock`), both teams. A locked athlete can turn to face but not move.
