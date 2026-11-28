@@ -1,5 +1,5 @@
 extends "res://tests/visual/harness.gd"
-## #173: the rig draws under both uniforms while a close camera follows the hit pose.
+## #173 / #428: both rigs draw during the hit pose, including at scaled output resolutions.
 
 const PlayerView := preload("res://src/game/player.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
@@ -33,14 +33,22 @@ func _capture_uniform(opponent: bool, capture_name: String) -> void:
 	skins.back().hide()
 	await _render()
 	var hidden := root.get_texture().get_image()
-	var idle_cell := Rect2i(Vector2i.ZERO, CELL)
-	var hit_cell := Rect2i(Vector2i(3 * CELL.x, CELL.y), CELL)
-	check(frame.get_region(idle_cell).get_data() != hidden.get_region(idle_cell).get_data(),
+	var logical_size := root.get_visible_rect().size
+	var idle_cell := image_rect(grid.get_child(0).get_global_rect(), logical_size, frame.get_size())
+	var hit_cell := image_rect(grid.get_child(grid.get_child_count() - 1).get_global_rect(), logical_size, frame.get_size())
+	check(idle_cell.has_area() and frame.get_region(idle_cell).get_data() != hidden.get_region(idle_cell).get_data(),
 		"%s uniform body draws in idle" % capture_name)
-	check(frame.get_region(hit_cell).get_data() != hidden.get_region(hit_cell).get_data(),
+	check(hit_cell.has_area() and frame.get_region(hit_cell).get_data() != hidden.get_region(hit_cell).get_data(),
 		"%s uniform body draws in knockback" % capture_name)
 	grid.queue_free()
 	await process_frame
+
+## Convert the Control rectangle from canvas units to the pixels in the captured image.
+static func image_rect(cell: Rect2, logical_size: Vector2, image_size: Vector2i) -> Rect2i:
+	var scale := Vector2(image_size) / logical_size
+	var first := Vector2i((cell.position * scale).floor())
+	var end := Vector2i((cell.end * scale).ceil())
+	return Rect2i(first, end - first).intersection(Rect2i(Vector2i.ZERO, image_size))
 
 func _cell(grid: GridContainer, index: int, opponent: bool) -> MeshInstance3D:
 	var box := SubViewportContainer.new()
