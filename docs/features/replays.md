@@ -66,6 +66,8 @@ post-game overview or the command line. Online skip votes, a free camera and cli
   - 4 pushing in a block (engaged, below `PUSH_MAX_SPEED` in the sim): the upper-body push, and a backpedal when driven back (#374)
   - 8 reaching for a pass: the catch pose, hands to the replayed ball (#374)
   - 16 signalling a fair catch: the raised arm and the FAIR CATCH label (#198)
+  - bits 5-6 the stumble tier and bits 7-12 its ticks left (`Replay.stumble_bits` / `stumble_of`): the stumble lean (#389).
+    The view rebuilds the moment from any frame, so seeks, pauses and slow motion show it right without events.
 - Plays: a snap opens a play, and tackle, out of bounds, touchdown, incomplete or explosion closes it. Each play stores:
   - the line of scrimmage, the offense and the QB at the snap
   - pass or run (a throw makes it a pass)
@@ -73,9 +75,9 @@ post-game overview or the command line. Online skip votes, a free camera and cli
   - yards (end spot minus LOS, clamped to the goal lines; the offense always attacks +y)
   - a summary, a highlight flag, and the clock/down context
   Label: `Play 7 (Q2 1:12, 3rd & 4 at OWN 30): TOUCHDOWN: pass for 31 yd`.
-- File: zstd-compressed Godot `store_var` of `{version: 3, meta: {size, mode}, plays, frames}`. Loading never decodes objects.
-  Version 3 only adds flag bits 4, 8 and 16 in the same float; the frame layout is unchanged. Version-2 files load with
-  those bits off (no push, reach or signal). Version-1 files still load; their plays have no tags, so they have no highlights.
+- File: zstd-compressed Godot `store_var` of `{version: 4, meta: {size, mode}, plays, frames}`. Loading never decodes objects.
+  Version 3 only adds flag bits 4, 8 and 16 in the same float, and version 4 the stumble bits; the frame layout is
+  unchanged. Older files load with those bits off (no push, reach, signal or stumble). Version-1 files still load; their plays have no tags, so they have no highlights.
 
 ## Design decisions
 - Playback is view-only: views read interpolated replay frames, and the sim is never rewound, so replay can't desync a match.
@@ -112,6 +114,8 @@ post-game overview or the command line. Online skip votes, a free camera and cli
 - Tests:
   - `tests/test_replay.gd`: capture rate, bracketing, interpolation/seek/speed, save/load size, summaries/yards/context,
     highlight tags, slow-mo + reel, frame-step/progress, old files, the block / catch / fair-catch flag bits, v2 files
+  - `tests/test_stumble.gd` (stumble bits in recorded frames) and `tests/visual/stumble_test.gd` (`stumble-replay`: the
+    lean from the V instant replay's flags alone)
   - `tests/visual/replay_poses_test.gd`: a staged block, catch and fair catch, recorded and replayed: captures
     `replay-block-push`, `replay-catch-reach`, `replay-fair-catch`
   - `tests/visual/replay_arms_test.gd`: replayed views run, not the live sim's clips

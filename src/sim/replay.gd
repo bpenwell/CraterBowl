@@ -6,12 +6,17 @@ const FRAME_EVERY := 2           # physics ticks per frame (60 Hz -> 30 Hz)
 const FPS := Tick.HZ / FRAME_EVERY
 const HEADER := 4                # phase, ball x, y, z
 const PER_ATHLETE := 3           # x, y, flags
-## Per-athlete flag bits. 1 and 2 since v1; 4, 8 and 16 since v3 (older files: off).
+## Per-athlete flag bits. 1 and 2 since v1; 4, 8 and 16 since v3; 32+ since v4 (older files: off).
 const F_DIVING := 1
 const F_GROUNDED := 2
 const F_PUSH := 4                # pushing in a block (the view's push pose); set by the caller
 const F_CATCH := 8               # reaching for a pass (the view's catch pose); set by the caller
 const F_FAIR_CATCH := 16         # the returner signalling a fair catch (raised arm + label)
+## Stumble (#389), since v4: bits 5-6 the Athlete.Stumble tier, bits 7-12 its ticks left, so the
+## view rebuilds the stumble pose from any frame (seek, slow motion) without events.
+const F_STUMBLE_SHIFT := 5
+const F_STUMBLE_TICK_SHIFT := 7
+const F_STUMBLE_TICK_MAX := 63
 const END_EVENTS := ["tackle", "out_of_bounds", "touchdown", "incomplete", "explode"]
 const BIG_PLAY_YARDS := 20.0     # gains (or losses) this long are highlights
 const SLOWMO_TAIL := int(2.0 * FPS)  # frames (2 s) of slow motion at the end of a highlight clip
@@ -109,10 +114,23 @@ func capture(world, view_bits := PackedByteArray()) -> void:
 		var a = world.athletes[i]
 		var bits := (F_DIVING if a.is_diving() else 0) | (F_GROUNDED if a.is_grounded() else 0) \
 			| (F_FAIR_CATCH if a.id == fair else 0) | (view_bits[i] if i < view_bits.size() else 0)
+		if a.stumble_t > 0.0:
+			bits |= stumble_bits(a.stumble_tier, a.stumble_t)
 		f.append_array([a.position.x, a.position.y, float(bits)])
 	frames.append(f)
 	if _open >= 0:
 		plays[_open]["end"] = frames.size()
+
+## Replay flag bits for a stumble of `tier` with `t` s left (0 when not stumbling).
+static func stumble_bits(tier: int, t: float) -> int:
+	if tier == 0 or t <= 0.0:
+		return 0
+	return (tier << F_STUMBLE_SHIFT) | (mini(roundi(t * Tick.HZ), F_STUMBLE_TICK_MAX) << F_STUMBLE_TICK_SHIFT)
+
+## [tier, s left] of the stumble recorded in replay `flags`; tier 0 when none.
+static func stumble_of(flags: int) -> Array:
+	var tier := (flags >> F_STUMBLE_SHIFT) & 3
+	return [tier, float((flags >> F_STUMBLE_TICK_SHIFT) & F_STUMBLE_TICK_MAX) / Tick.HZ if tier != 0 else 0.0]
 
 ## The next capture() call records a frame.
 func frame_due() -> bool:
@@ -249,7 +267,7 @@ func save(path: String) -> bool:
 	var f := FileAccess.open_compressed(path, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
 	if f == null:
 		return false
-	f.store_var({"version": 3, "meta": meta, "plays": plays, "frames": frames})
+	f.store_var({"version": 4, "meta": meta, "plays": plays, "frames": frames})
 	return true
 
 func load_file(path: String) -> bool:
