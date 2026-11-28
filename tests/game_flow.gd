@@ -353,7 +353,9 @@ func _initialize() -> void:
 		# B04a: auto highlight replay, replay camera + transport keys, highlight reel at FINAL
 		[8000, func(): check(auto_replay_default, "auto replay on by default"); main.auto_replay = true; main.configure(7); main.ai.defense_enabled = false],
 		[8001, func(): _key(KEY_SPACE)],
-		[8100, func(): main.world.carrier().position = Vector2(26, 101.0)],
+		# No TD celebration here: the replay now waits for one (#450, tests/visual/td_celebration_test.gd),
+		# and these steps are timed to the plain 1 s delay.
+		[8100, func(): main.looks.erase(main.world.carrier().id); main.world.carrier().position = Vector2(26, 101.0)],
 		[8105, func(): check(main.world.phase == main.World.Phase.DEAD and not main.replay_active, "TD: no replay before the delay"); check(main.replay.last_play().get("highlight", false), "TD tagged as highlight (%s)" % main.replay.last_play().get("label", ""))],
 		[8170, func(): check(main.replay_active and main.replay_auto, "TD replays itself after the whistle"); check(main.hud.text.find("HIGHLIGHT") >= 0 and main.hud.text.find("TOUCHDOWN") >= 0, "HUD: HIGHLIGHT + play label"); check(main.replay_overlay.root.visible and main.replay_overlay.badge_l.text == "HIGHLIGHT" and main.replay_overlay.summary_l.text.begins_with("TOUCHDOWN"), "replay overlay shows HIGHLIGHT + summary (%s)" % main.replay_overlay.summary_l.text); frozen_y = main.world.athletes[0].position.y; _key(KEY_C); check(main.hud.text.find("cam: End zone") >= 0 or main.replay_cam == 1, "C cycles replay camera")],
 		[8200, func(): var pose = main.replay_camera_pose(); check(main.camera.global_position.distance_to(pose[0]) < 1.5, "camera follows the end-zone replay pose (%.1f m off)" % main.camera.global_position.distance_to(pose[0])); check(absf(main.world.athletes[0].position.y - frozen_y) < 0.001, "sim frozen during auto replay")],

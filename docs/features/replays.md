@@ -14,6 +14,7 @@ post-game overview or the command line. Online skip votes, a free camera and cli
 ### Automatic highlight replays (offline)
 - Highlights are plays tagged TOUCHDOWN, INTERCEPTION, FUMBLE LOST, TURNOVER or SACK, plus any gain or loss of 20+ yards.
 - About 1 s after the whistle (`AUTO_REPLAY_DELAY`), a highlight replays once at 1×, and its last 2 s run at 0.35×.
+  A touchdown celebration plays out first: the replay and the next play wait while any view still has one to play (`main.celebrating()`, #450). `tests/visual/td_celebration_test.gd` runs a TD in and checks no celebration frame is under the replay (capture `td-celebration-finishes`; on main the replay cut in at 61 of 89 frames).
   The match is paused while it shows. V or Enter skips it, and a skipped play never auto-replays again.
 - Not online (the match keeps running there), not in practice drills, and not after FINAL. The final whistle
   ends an auto highlight that's still on screen, so the summary and Players of the Game take over.

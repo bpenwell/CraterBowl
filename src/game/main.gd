@@ -1654,7 +1654,7 @@ func _step_authoritative(delta: float, my_input: Dictionary) -> void:
 			return
 	elif world.phase == World.Phase.DEAD and auto_next and not series.is_final():
 		dead_t += delta
-		if dead_t >= NEXT_PLAY_DELAY:
+		if dead_t >= NEXT_PLAY_DELAY and not (net == null and celebrating()):   # online: not on local view state
 			next_play()
 	var humans: Array = [controlled_id] + roster.humans()
 	if is_server():
@@ -1721,12 +1721,23 @@ func toggle_replay() -> bool:
 	replay_active = true
 	return true
 
-## Offline: a highlight play replays itself once, AUTO_REPLAY_DELAY after the whistle.
+## A touchdown celebration is still to play or playing on some view: offline, the highlight
+## replay and the next play wait for it (the celebration is view-only and lasts 1.5 s).
+func celebrating() -> bool:
+	for v in views:
+		if v.celebrate_t > 0.0:
+			return true
+	return false
+
+## Offline: a highlight play replays itself once, AUTO_REPLAY_DELAY after the whistle, and
+## not before a touchdown celebration has finished.
 func maybe_auto_replay() -> bool:
 	if not auto_replay or net != null or drill != null or replay_active or series.is_final():
 		return false
 	if world.phase != World.Phase.DEAD or whistle_t < AUTO_REPLAY_DELAY:
 		return false
+	if celebrating():
+		return false   # the scorer's celebration plays out first, not under the replay cut
 	var i := replay.last_play_index()
 	if i < 0 or i == replay_shown or not replay.plays[i].get("highlight", false):
 		return false
