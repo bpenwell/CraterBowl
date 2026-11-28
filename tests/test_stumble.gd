@@ -193,6 +193,8 @@ func test_stumbling_carrier_is_tackled_never_stripped() -> void:
 		w.step(RUN_UP, DT)
 		strips += _names().count("fumble")
 		assert_true(_names().has("tackle"), "tackled (%s)" % str(_names()))
+		w.step(RUN_UP, DT)
+		assert_true(not c.is_stumbling(), "tackled: the dead-ball holder's stumble ends")
 	assert_eq(strips, 0, "a stumbling carrier is never stripped")
 
 ## Accept 5: one stumble per pile. Two bodies hit in the same tick give one event at the worst

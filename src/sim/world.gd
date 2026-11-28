@@ -777,6 +777,8 @@ func step(inputs: Dictionary, dt: float) -> void:
 		var inp: Dictionary = inputs.get(a.id, {})
 		if phase == Phase.DEAD and ball.holder_id == a.id:
 			a.jump_t = 0.0   # the dead ball's holder is frozen at the spot: land him there (#379)
+			a.stumble_t = 0.0   # ...and upright: his tackle fall shouldn't wear a frozen stumble (#389)
+			a.stumble_tier = Athlete.Stumble.NONE
 			continue
 		var human := is_human_input(inp)
 		step_athlete(a, inp.get("dir", Vector2.ZERO), inp.get("sprint", false), dt, inp.get("block", false))
