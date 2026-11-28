@@ -23,6 +23,7 @@ Run the full one before every commit that touches code. The pre-commit hook runs
 The gate checks that Godot is available before running lint. Set `GODOT=/path/to/godot` when using
 a binary outside `PATH`. The Ubuntu 24.04 PR workflow installs renderer packages from the Ubuntu
 archives and runs `bash tests/ci_setup_test.sh` to check setup failures without changing system APT state.
+The PR tests job has a 30-minute limit to give the rendered suite and full gate room on slower runners (#430).
 
 | Tier | Steps | Catches |
 |---|---|---|
