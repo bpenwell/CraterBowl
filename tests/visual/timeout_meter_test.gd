@@ -38,6 +38,12 @@ func _run() -> void:
 		for team in overlay.Teams.ROSTER:
 			var code_w := font.get_string_size(team["code"], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 			check(meters[0].get_combined_minimum_size().x <= code_w, "meter footprint (%d px) is no wider than the %s code (%d px): the bug never grows" % [meters[0].get_combined_minimum_size().x, team["code"], code_w])
+		var old_pips: Label = overlay._label(11)   # what main drew: keeps the bug's height identical
+		old_pips.text = "●●○"
+		overlay.root.add_child(old_pips)
+		check(is_equal_approx(meters[0].get_combined_minimum_size().y, old_pips.get_combined_minimum_size().y),
+			"meter is as tall as the old pip label (%.1f vs %.1f): the bug keeps its height" % [meters[0].get_combined_minimum_size().y, old_pips.get_combined_minimum_size().y])
+		old_pips.free()
 	check(_glyph_pips(overlay.bug).is_empty(), "no ●/○ text pips on the scorebug %s" % [_glyph_pips(overlay.bug)])
 	await _state(game, overlay, meters, 3, "timeouts-3-3")
 

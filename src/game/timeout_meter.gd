@@ -15,7 +15,7 @@ const GAP := 4.0
 const FOOTPRINT := 38.0
 ## The old 11 px pip label's line height: the bug stays exactly as tall as before. Bars sit at
 ## the bottom, clear of the score digits' baseline.
-const HEIGHT := 14.0
+const HEIGHT := 17.0
 const MAX_SHOWN := 3
 const PULSE := 0.6   # seconds the just-used bar flashes white and shrinks back to hollow
 const USED_FILL := Color(1, 1, 1, 0.07)
