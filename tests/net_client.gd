@@ -65,6 +65,7 @@ var had_first_td := false
 var had_first_win := false
 var got_awards := false
 var got_summary := false
+var saw_grounded_breakup := false
 var shared_td_line := false   # the host Ann's touchdown sits in the name-keyed summary (#200)
 var host_loss := false      # #56 mode
 var armed_at := -1
@@ -226,6 +227,10 @@ func _physics_process(_dt: float) -> bool:
 		equipped_number = main.views[aid].number_text
 	if bad_snap_sent_at > 0 and f > bad_snap_sent_at + 90:
 		_test_remote_handoff()
+	if main.last_whistle == "BREAKUP" and main.world.phase == main.World.Phase.DEAD:
+		var b = main.world.ball
+		if b.holder_id < 0 and b.position.z > 0.3:
+			saw_grounded_breakup = saw_grounded_breakup or is_equal_approx(main.ball_view.position.y, main.pres.Football.RADIUS)
 	if remote_handoff_confirmed and not sent_grounding_throw and main.world.los_y == 42.0 and main.world.ball.is_held_by(aid):
 		main.pov_enabled = false
 		main.aim_point = Vector2(4.0, 22.0)
@@ -234,6 +239,7 @@ func _physics_process(_dt: float) -> bool:
 	if remote_handoff_confirmed and not checked_retreated_keeper:
 		_check_retreated_keeper()
 	if f == 1500 or (remote_handoff_confirmed and got_awards and got_summary):
+		check(saw_grounded_breakup, "the client's elevated dead ball falls to turf after a breakup")
 		check(saw_lobby and lobby_size == 5 and lobby_code.length() == 11, "joined by code into the private lobby (5v5, code %s)" % lobby_code)
 		check(quarter_lobby_seen and quarter_clock_seen, "host lobby Q and H select three-minute quarters on both machines")
 		check(aid >= 0, "readied up -> match started -> welcomed with athlete %d" % aid)

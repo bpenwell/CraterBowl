@@ -31,6 +31,8 @@ var stick_b: Node3D
 var excite := 0.0
 var shake := 0.0
 var spin := 0.0
+var _dead_ball_start_y := -1.0
+var _dead_ball_fall_time := 0.0
 var _carrier = null   # view carrying the ball (player.gd), for the carry pose
 var _last_score := [0, 0]
 var barrier: LosBarrier
@@ -75,6 +77,7 @@ func rebuild(field_root: Node3D) -> void:
 	_last_score = [0, 0]
 	_ends_behind = 0   # FieldArt.build paints HELIOS behind the offense
 	_period = 0
+	_dead_ball_start_y = -1.0
 
 func _ground_quad(n: String, size: float, shader: String) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -344,6 +347,9 @@ func _update_ball(delta: float, w) -> void:
 		return
 	var b = w.ball
 	var st := int(b.state)
+	var unheld_dead_ball: bool = st == 3 and b.holder_id < 0
+	if not unheld_dead_ball:
+		_dead_ball_start_y = -1.0
 	var held_view = main.views[b.holder_id] if st in [0, 3] and b.holder_id >= 0 and b.holder_id < main.views.size() else null
 	if held_view != null and held_view.is_celebrating():
 		held_view = null
@@ -369,8 +375,17 @@ func _update_ball(delta: float, w) -> void:
 		spin += delta * 9.0
 		bv.basis = Basis(Vector3.UP, spin * 0.7) * Basis(Vector3.BACK, spin)
 		bv.position.y = maxf(bv.position.y, Football.RADIUS)   # the sim's ball centre is at z 0 on the ground
-	elif st == 3:   # dead, nobody holding it: lying on the spot, pointing downfield
+	elif st == 3:
 		bv.basis = Basis()
+		if unheld_dead_ball:
+			# Physics keeps the contact point for the ruling. On clients, the first
+			# rendered height may still come from the interpolated pass flight.
+			if _dead_ball_start_y < 0.0:
+				_dead_ball_start_y = maxf(bv.position.y, Football.RADIUS)
+				_dead_ball_fall_time = 0.0
+			_dead_ball_fall_time += delta
+			var fall: float = 0.5 * w.gravity() * _dead_ball_fall_time * _dead_ball_fall_time
+			bv.position.y = _dead_ball_start_y - fall
 		bv.position.y = maxf(bv.position.y, Football.RADIUS)
 	# Trail while airborne. (Skip the GPU re-upload when there's no trail at all.)
 	if trail_pts.is_empty() and st != 1:

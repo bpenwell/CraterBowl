@@ -93,6 +93,7 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.event.disconnect(_finish_after_handoff)
 	# Let the joiner observe the handoff before setting up the final score.
 	await create_timer(0.5).timeout
+	await _show_dead_ball_drop()
 	_record_retreated_keeper()
 	await create_timer(0.45).timeout
 	await _offer_grounding_throw()
@@ -110,6 +111,22 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.phase = main.World.Phase.DEAD
 	main.series.last_result = {"type": "incomplete"}
 	main.next_play()
+
+## Broadcast an elevated breakup and leave the dead-ball hold on screen for the client.
+func _show_dead_ball_drop() -> void:
+	main.series.start(0, 40.0)
+	var w = main.world
+	var qb = w.find_role(0, main.Athlete.Role.QB)
+	for a in w.athletes:
+		a.position = Vector2(30.0, 25.0 + 3.0 * a.id)
+	qb.position = Vector2(12.0, 35.0)
+	w.find_role(1, main.Athlete.Role.CB).position = Vector2(13.0, 45.0)
+	w.start_live_with(qb.id)
+	assert(w.throw(qb.id, Vector2(12.0, 50.0), main.T.PLAYER_PASS_POWER))
+	var saved_auto_next: bool = main.auto_next
+	main.auto_next = false
+	await create_timer(1.6).timeout
+	main.auto_next = saved_auto_next
 
 ## Let the real client observe the host's crossing state after it has retreated.
 func _record_retreated_keeper() -> void:
