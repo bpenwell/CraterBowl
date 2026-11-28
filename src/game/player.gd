@@ -475,7 +475,7 @@ func _near_catch_point() -> bool:
 
 ## Catch pose (#246): ready stance as the pass comes in, hands to the ball as it closes.
 func _update_catch(delta: float, can_reach: bool, dive_reach: bool) -> void:
-	var chest := global_position + Vector3.UP * CATCH_HEIGHT
+	var chest := global_position + Vector3.UP * (CATCH_HEIGHT + jump_pose.lift())   # in a jump the chest rides up (#361)
 	var catching: bool = (replay_flags & Replay.F_CATCH) != 0 and look_node != null if replay_flags >= 0 \
 		else _catch_wanted and can_reach and _pass_in_air() \
 		and look_node.global_position.distance_to(chest) < CATCH_LEAD * world.ball.velocity.length()

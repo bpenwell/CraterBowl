@@ -85,6 +85,10 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
 - During an active Classic dive, an athlete reaching for a nearby pass keeps the slide’s torso and
   leg animation. The arms use the standing reach’s shoulder and elbow limits, and blend into
   the carry after the catch (#360).
+- A receiver can catch at the top of a jump (#361): the sim's catch height rises with
+  `jump_height()` (up to `CATCH_MAX_HEIGHT + JUMP_HEIGHT`), and the view reaches from the lifted
+  chest, so a ball over a standing receiver's reach gets an arm straight up to it. Capture
+  `jump-catch` (`tests/visual/jump_catch_test.gd`).
 - Control stays on your own athlete after a catch or handoff. Bots run with the ball when they have it.
 
 ### Run game
