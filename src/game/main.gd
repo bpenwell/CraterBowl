@@ -1222,8 +1222,7 @@ func _apply_interpolation() -> void:
 	if interp.buf.is_empty():
 		return
 	var now := Time.get_ticks_msec() / 1000.0
-	var t := latest_snap_tick / Interp.TICK_RATE + (now - latest_snap_at) - INTERP_DELAY
-	var smp := interp.sample(t)
+	var smp := interp.sample(interp.draw_time(latest_snap_tick, now - latest_snap_at, INTERP_DELAY))
 	var xy: PackedFloat32Array = smp["xy"]
 	for i in mini(world.athletes.size(), xy.size() / 2):
 		if i != my_id:

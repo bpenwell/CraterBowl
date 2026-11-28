@@ -221,7 +221,9 @@ and full rollback of the whole sim is overkill when the host owns every contact.
 
 - `push(tick, xy, ball, snap)` stores `tick / TICK_RATE` (hard-coded 60) and the snapshot, drops
   out-of-order, keeps 32 entries.
-- `main.gd:_apply_interpolation` samples at `latest_snap_tick/60 + (now - latest_snap_at) - 0.1` and
+- `main.gd:_apply_interpolation` samples at `interp.draw_time(...)`: `latest_snap_tick/60 + (now - latest_snap_at) - 0.1`,
+  never earlier than the last draw (a hitch runs the wall clock ahead, and the next snapshot used to pull it back,
+  replaying flags: a landed diver standing up again, #421). It
   writes positions for every athlete except ours, and the ball unless we hold it. Position is
   interpolated; every other athlete field (velocity, facing, role, flags, dive/ground/jump/move
   timers) comes from the buffered snapshot **nearest** the sample time

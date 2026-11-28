@@ -5,6 +5,7 @@ const Tick := preload("res://src/sim/tick.gd")
 const TICK_RATE := Tick.HZ   # snapshot ticks -> server seconds
 const MAX_BUFFER := 32
 
+var drawn_t := -INF   # last time draw_time returned
 var buf: Array = []   # [[server_time, positions(PackedFloat32Array xy pairs), ball(Vector3), snapshot], ...]
 
 func push(tick: int, athlete_xy: PackedFloat32Array, ball: Vector3, snap := {}) -> void:
@@ -14,6 +15,13 @@ func push(tick: int, athlete_xy: PackedFloat32Array, ball: Vector3, snap := {}) 
 	buf.append([t, athlete_xy, ball, snap])
 	if buf.size() > MAX_BUFFER:
 		buf.pop_front()
+
+## Server time to draw others at: `delay` behind the newest snapshot, advanced by the wall time since
+## it arrived, and never earlier than the last draw. A hitch runs the wall clock ahead; the next
+## snapshot would pull it back and replay flags (a landed diver standing up again, #421).
+func draw_time(latest_tick: int, since_snapshot: float, delay: float) -> float:
+	drawn_t = maxf(drawn_t, latest_tick / TICK_RATE + since_snapshot - delay)
+	return drawn_t
 
 func latest_time() -> float:
 	return buf[-1][0] if not buf.is_empty() else 0.0
