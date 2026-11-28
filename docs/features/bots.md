@@ -58,6 +58,12 @@ catch rules). There is one difficulty level. A player who disconnects frees thei
   at `AI_SPY_BLITZ_TIME` (3.5 s) or when the QB crosses the line; others sit deep (`AI_DEEP_ZONE` 14 yd).
 - **Ball in the air:** the 2 nearest players per side break to the predicted landing point; man defenders play the receiver's hands, not the ball.
 - **Tackling:** pursuers lead the carrier and dive within `AI_DIVE_RANGE` (2 yd). Everyone chases a loose ball.
+- **Jumping a high pass (#435):** a bot defender jumps when a forward pass, `JUMP_TIME / 2` (0.3 s) from now, will be
+  above a standing catch (`CATCH_MAX_HEIGHT` 2.6 yd) but under his jump's reach (+`JUMP_HEIGHT` 0.9 yd) and within
+  `CATCH_RADIUS + CONTEST_MARGIN` of where his current velocity carries him, so he tops out as the ball arrives: a DL
+  bats a throw over his head, an LB/CB picks a lob before turning to chase it. Bot receivers don't jump: a ball that high
+  over a receiver is meant for someone deeper. No jumps for kicks (their catch ignores the jump), in Chaosball (walls
+  bend the ball's path), or before the ball is catchable (`MIN_PASS_TRAVEL` from the throw).
 
 ### Chaosball
 - A carrier passes to the most open teammate when an opponent is within `AI_CHAOS_PRESSURE` (3.5 yd) or the pass clock
@@ -70,6 +76,10 @@ catch rules). There is one difficulty level. A player who disconnects frees thei
   were too easy (now `INT_RADIUS` at closest approach), and man defenders walked through unreleased receivers.
 - Play choice is deterministic (rotating `variant`), so bot games are reproducible.
 - Zone calls were added partly because deep passing was too easy against man-only bots.
+- Bot offense jumps were tried in #435 and dropped: receivers under a deep ball jumped and caught throws meant for the
+  deeper receiver, which turned `test_base_zone_reduces_deep_completions_per_snap` red (Cover 2 3 vs legacy 1).
+  In 180 all-bot passing plays the defense-only rule jumped 17 times and left completions, interceptions and
+  incompletions unchanged (88 / 25 / 67): it matters against throws over a defender who hasn't turned, mostly human ones.
 
 ## Code and tests
 - `src/sim/ai.gd` — all bot inputs, play calling, QB reads, coverage, pursuit.
@@ -77,7 +87,8 @@ catch rules). There is one difficulty level. A player who disconnects frees thei
 - `src/sim/world.gd` — `man_assignments`, `defense_assignment`, `protection_target`, `run_block_assignments`.
 - `src/sim/roster.gd` — slot ownership; `src/game/main.gd` — `_step_authoritative` (snap delay, AI tick).
 - `tools/bot_stats.gd`, `tools/play_stats.gd` — all-bot outcome stats.
-- Tests: `tests/test_bots.gd` (incl. a full all-bot game), `tests/test_defensive_playbook.gd`, `tests/test_run_game.gd`,
+- Tests: `tests/test_bots.gd` (incl. a full all-bot game; `test_bot_jumps_to_contest_a_high_pass`,
+  `test_bot_skips_jumps_it_does_not_need`), `tests/visual/bot_jump_contest_test.gd` (`bot-jump-contest`), `tests/test_defensive_playbook.gd`, `tests/test_run_game.gd`,
   `tests/test_chaos_scoring.gd` (`test_ai_passes_before_clock`), `tests/test_match_sizes.gd` (3v3/5v5 bot games).
 
 ## Open issues
