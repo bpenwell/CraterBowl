@@ -143,8 +143,8 @@ func test_no_stumble_slow_spin_jump_or_teammate() -> void:
 	_run(w, SPRINT_UP, 0.5)
 	assert_eq(_stumbles().size(), 0, "a teammate's body: no stumble (opponents only)")
 
-## Accept 4: a dive that misses the carrier by a hair (d = 1.2) clips his ankles; at d = 0.9
-## it's a tackle (or a strip), never a stumble.
+## Accept 4: a dive that misses the carrier by a hair (d = 1.2, passing) clips his ankles; one
+## still closing in, or at d = 0.9, is a tackle (or a strip), never a stumble.
 func test_ankle_tap_and_tackle_reach() -> void:
 	var w := _world(Vector2(CX, 48.0))
 	var d := w.get_athlete(2)
@@ -159,12 +159,41 @@ func test_ankle_tap_and_tackle_reach() -> void:
 
 	w = _world(Vector2(CX, 48.0))
 	d = w.get_athlete(2)
+	d.position = Vector2(CX + 1.3, 48.0)   # still closing in at 1.3: next tick it's a tackle, not a trip
+	d.facing = Vector2(-1, 0)
+	assert_true(d.start_dive(), "diver in the air")
+	w.step(SPRINT_UP, DT)
+	assert_eq(_stumbles().size(), 0, "a dive still closing in never trips: it gets its tackle")
+	w.step(SPRINT_UP, DT)
+	assert_true(_names().has("tackle") or _names().has("fumble"), "the closing dive tackles (%s)" % str(_names()))
+
+	w = _world(Vector2(CX, 48.0))
+	d = w.get_athlete(2)
 	d.position = Vector2(CX + 0.9, 48.0)
 	d.facing = Vector2(0, 1)
 	assert_true(d.start_dive(), "diver in the air")
 	w.step(SPRINT_UP, DT)
 	assert_true(_names().has("tackle") or _names().has("fumble"), "in reach: a tackle (%s)" % str(_names()))
 	assert_eq(_stumbles().size(), 0, "never a stumble in tackle reach")
+
+## No fumbles from stumbles in phase 1 (#391 adds off-balance strips): tired carriers hit hard
+## from behind would often fumble; while stumbling they're tackled every time.
+func test_stumbling_carrier_is_tackled_never_stripped() -> void:
+	var strips := 0
+	for k in 40:
+		var w := _world(Vector2(CX, 48.0))
+		_run(w, RUN_UP, k * DT)   # vary the strip roll's play time
+		var c := w.get_athlete(0)
+		c.stamina = 0.0
+		c.trip(S.STUMBLE)
+		var d := w.get_athlete(2)
+		d.position = c.position - Vector2(0.0, 0.9)   # right behind him, facing his way
+		d.facing = Vector2(0, 1)
+		assert_true(d.start_dive(), "diver in the air")
+		w.step(RUN_UP, DT)
+		strips += _names().count("fumble")
+		assert_true(_names().has("tackle"), "tackled (%s)" % str(_names()))
+	assert_eq(strips, 0, "a stumbling carrier is never stripped")
 
 ## Accept 5: one stumble per pile. Two bodies hit in the same tick give one event at the worst
 ## tier; a second body within the 0.5 s immunity is ignored.

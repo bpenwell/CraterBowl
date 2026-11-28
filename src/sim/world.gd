@@ -914,7 +914,9 @@ func _check_tackles() -> void:
 		return
 	for a in athletes:
 		if a.team != c.team and a.is_diving() and not c.is_spinning() and a.position.distance_to(c.position) <= T.TACKLE_REACH:
-			if _is_strip(a, c):
+			# A stumbling carrier is tackled, never stripped: stumbles let pursuers catch him from
+			# behind, where strips are likeliest, and phase 1 adds no fumbles (#389; off balance is #391).
+			if not c.is_stumbling() and _is_strip(a, c):
 				_fumble(c, a)
 			else:
 				_whistle("tackle", {"by": a.id, "carrier": c.id, "team": c.team})
@@ -943,13 +945,14 @@ func _check_trips() -> void:
 			event.emit("stumble", {"id": r.id, "by": by.id, "tier": tier})
 
 ## How hard runner `r` trips on opponent `o` (0 = no contact). A carrier is clipped by a dive
-## that just missed (TACKLE_REACH < d <= ANKLE_REACH); anyone trips over a body within
+## that just missed (TACKLE_REACH < d <= ANKLE_REACH, no longer closing); anyone trips over a body within
 ## TRIP_REACH, worst when crossing it square-on. Tired legs trip harder.
 static func trip_severity(r: Athlete, o: Athlete, is_carrier: bool) -> float:
 	var d := r.position.distance_to(o.position)
 	var square := 0.0
 	if o.is_diving() and is_carrier:
-		if d <= T.TACKLE_REACH or d > T.ANKLE_REACH:
+		# Only a dive that missed: one still closing in may reach TACKLE_REACH next tick and tackle.
+		if d <= T.TACKLE_REACH or d > T.ANKLE_REACH or (o.velocity - r.velocity).dot(r.position - o.position) > 0.0:
 			return 0.0
 		square = T.ANKLE_SQUARE
 	elif d <= T.TRIP_REACH:

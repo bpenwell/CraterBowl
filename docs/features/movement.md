@@ -86,8 +86,9 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
 ### Stumbles (#389)
 Running into a dive or slide trips you up: you lose speed for a moment, and you never fall (falls are #391).
 - **What trips you:** only opponents who are diving or lying on the turf; never teammates.
-  - **Ankle tap:** the carrier, when a diving opponent passes between `TACKLE_REACH` (1.0 yd) and `ANKLE_REACH` (1.35 yd).
-    Inside 1.0 yd the dive tackles as before; the stumble only covers the near miss.
+  - **Ankle tap:** the carrier, when a diving opponent who missed passes between `TACKLE_REACH` (1.0 yd) and
+    `ANKLE_REACH` (1.35 yd), no longer closing in. Inside 1.0 yd the dive tackles as before, and a dive still closing in
+    gets its tackle next tick; the stumble only covers the near miss.
   - **Body trip:** anyone running within `TRIP_REACH` (0.75 yd) of a lying opponent (or a diving one, for a non-carrier).
 - **Immune:** below `TRIP_MIN_SPEED` (4 yd/s, so walking round a pile and engaged blockers never trip), spinning,
   airborne (jump over a slider to hurdle him), or within `TRIP_IMMUNE` (0.5 s) of your last trip: one pile, one stumble.
@@ -105,7 +106,8 @@ Running into a dive or slide trips you up: you lose speed for a moment, and you 
   (bobble); a sprint ankle tap is 0.54 (bobble); a dash into a body is 1.23 (a stumble now, a fall once #391 lands).
 - The multiplier eases back with a smoothstep and multiplies the QB dropback slowdown. It applies to running and dashes,
   not to a dive you start after the lock.
-- No fumble and no stamina cost. The play goes on.
+- No stamina cost, and no fumbles: a dive that reaches a stumbling carrier tackles him, never strips him
+  (off-balance strips are #391). The play goes on.
 - You see it: the upper body pitches forward, the head lifts back toward the field and the free arms go out for
   balance, then it eases back into the run ([presentation](presentation.md)). Replays show it from the recording.
 
@@ -124,10 +126,15 @@ Running into a dive or slide trips you up: you lose speed for a moment, and you 
   you fall over", and untouched trips that end plays feel cheap. A missed dive now has value, and spin and jump are the
   counters. Severity uses the runner's own speed, not the closing speed: with the diver's 11 yd/s added, nearly every
   ankle tap would be a full stumble. The rule is a pure function of positions, velocities and stamina (no RNG), so
-  clients predict the slowdown exactly from the snapshot. Bot games barely move: over about 600 bot 7v7 plays (6
-  starting spots x 30 min, 2026-11-28, Windows desktop) yards per play went 9.55 to 9.53 with 3.5 stumbles per play,
-  1.1 of them on the carrier; most are offensive players crossing missed divers. Design note, phases and owner
-  questions: #392.
+  clients predict the slowdown exactly from the snapshot. Two rules came from bot games (6 starting spots x 30 min of
+  bot 7v7 each, about 600 plays, 2026-11-28, Windows desktop, rule off vs on):
+  - The first version tapped ankles on any dive inside 1.35 yd, including one still closing in, so the carrier
+    stumbled one tick before the same dive tackled him (1.1 carrier stumbles per play). Now only a passing dive taps.
+  - Slowed carriers get caught from behind, where strips are likeliest: fumbles went from 25 to 42-50. A stumbling
+    carrier is now tackled, never stripped, which keeps phase 1 free of fumble changes.
+  - Final: yards per play 9.55 off, 9.58 on; fumbles 25 off, 21 on (noise is about ±5); 2.5 stumbles per play, 0.38
+    on the carrier. Most are offensive players crossing missed divers.
+  Design note, phases and owner questions: #392.
 
 ## Code and tests
 - `src/sim/player_motion.gd` — run/sprint speed, stamina, lockout, clamping.
@@ -141,8 +148,8 @@ Running into a dive or slide trips you up: you lose speed for a moment, and you 
   `tests/test_turnovers.gd`, `tests/test_jump.gd`, `tests/test_controls.gd` (default keys, saved-binding migration),
   `tests/game_flow.gd` (R and E consume charges, R without a charge does nothing, F dives, Space jumps and a chained jump costs more),
   `tests/visual/jump_test.gd` (takeoff, peak and landing poses), `tests/menu_flow.gd` (rebinding, gamepad),
-  `tests/test_stumble.gd` (tiers, speed curve, ankle tap vs tackle, immunity, dash cancel and lock, replay bits, bots
-  trip), `tests/flow/segments/stumble.gd` (the human QB sprints over a missed diver: event, speed dip, lean, recovery),
+  `tests/test_stumble.gd` (tiers, speed curve, ankle tap vs closing dive vs tackle, immunity, no downgrade, no strips,
+  dash cancel and lock, replay bits, bots trip), `tests/flow/segments/stumble.gd` (the human QB sprints over a missed diver: event, speed dip, lean, recovery),
   `tests/visual/stumble_test.gd` (`stumble-onset`, `stumble-recover`, `stumble-replay`).
 
 ## Open issues
