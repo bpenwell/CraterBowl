@@ -606,7 +606,7 @@ func _process(delta: float) -> void:
 		_update_look(delta, down, diving)
 	# Celebration flourishes on top of the dance.
 	body.rotation = Vector3.ZERO
-	_prone_lift = lerpf(_prone_lift, PRONE_LIFT if _cur == PRONE_CLIP else 0.0, 1.0 - exp(-CARRY_K * delta))
+	_prone_lift = lerpf(_prone_lift, PRONE_LIFT if _cur == PRONE_CLIP and not is_falling() else 0.0, 1.0 - exp(-CARRY_K * delta))
 	body.position = Vector3(0.0, jump_pose.lift() + _prone_lift, 0.0)
 	if live and athlete.is_spinning():
 		body.rotation.y = TAU * (1.0 - athlete.move_t / T.SPIN_TIME)
@@ -633,6 +633,7 @@ func _choose_anim(spd: float, down: bool) -> void:
 		_play({"hop": "Jump", "flip": "Roll"}.get(celebrate_kind, "Dance"))
 		return
 	if is_falling():
+		_dove = false   # a fumble fall from the dive gets up through tackle_fall.gd, then stands
 		if not fall.holding() and not fall.rising():   # hit-stop: keep the contact frame; getting up: tackle_fall plays it
 			_play("Idle", 0.1)   # under the ragdoll: only the neck and clavicles still follow a clip
 		return
@@ -642,7 +643,8 @@ func _choose_anim(spd: float, down: bool) -> void:
 		return
 	if athlete.is_grounded():
 		if _dove:
-			_lie_prone(athlete.recover_t)
+			# Online clients decode recover_t as 0.01 while grounded (#397): time it here as well.
+			_lie_prone(maxf(athlete.recover_t, T.DIVE_RECOVER - _down_t))
 			return
 		# Knocked down (not a dive): lie on the turf, then pop back up as the recovery ends.
 		if not _was_down or _cur == "u2/Slide_Start":
@@ -688,6 +690,7 @@ func _choose_replay_anim(spd: float) -> void:
 		_play(DIVE_CLIP, 0.08, DIVE_RATE)
 	elif replay_flags & Replay.F_GROUNDED:
 		if _dove:
+			# shortcut: wall-clock time down, so a paused or slow replay gets up early; use the replay clock if that shows.
 			_lie_prone(T.DIVE_RECOVER - _down_t)
 		else:
 			_play("u2/Slide", 0.12)

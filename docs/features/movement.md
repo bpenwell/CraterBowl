@@ -83,6 +83,8 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
   arms ahead), then he lies prone on the turf (`Swim_Fwd` held at 0.5 s), then pushes up to his
   hands and knees (`Crouch_Idle`) for the last 0.5 s of the recovery and stands. View only: no sim
   or wire change. Knockdowns that aren't dives (a fumble) still use the slide and `LayToIdle`.
+  A carrier's own dive that ends the play goes down through the tackle fall (#362) instead, and rises
+  through `LayToIdle`.
 - Anyone can dive, including the carrier (a lunge; the play stays live while he lies there).
 - Bots dive when within `AI_DIVE_RANGE` (2.0 yd) of the carrier.
 

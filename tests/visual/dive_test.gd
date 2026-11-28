@@ -4,10 +4,11 @@ extends "res://tests/visual/harness.gd"
 ## through LayToIdle, which starts face-up. Every frame from the dive to back on his feet is
 ## measured: the chest never faces the sky.
 
-const LAUNCH_FRAME := 12    # frames after F: in the air
-const PRONE_FRAME := 45     # on the turf, 0.4 s into the 1 s recovery
-const GETUP_FRAME := 72     # pushing up (GETUP_AT s of recovery left)
-const END_FRAME := 100      # back on his feet
+## Captures are keyed to sim and clip state, not frame counts.
+const LAUNCH_AT := 0.15     # s into the launch clip: in the air
+const PRONE_AT := 0.6       # s of recovery left: on the turf
+const GETUP_AT := 0.2       # s into the push-up clip
+const MAX_FRAMES := 150     # the dive and recovery take 1.35 s
 
 var game
 var cam: Camera3D
@@ -52,7 +53,9 @@ func _run() -> void:
 	var heading := Vector3(1, 0, 0)
 	var worst_up := -1.0     # highest the chest front ever points (y of its unit vector)
 	var worst_at := -1
-	for frame in END_FRAME + 1:
+	var shot := {}
+	var standing := 0   # frames since the recovery ended
+	for frame in MAX_FRAMES:
 		cam.global_position = start + Vector3(2.4, 1.4, 6.0)
 		cam.look_at(start + Vector3(2.4, 0.4, 0.0))
 		cam.make_current()
@@ -64,24 +67,32 @@ func _run() -> void:
 		if up > worst_up:
 			worst_up = up
 			worst_at = frame
-		match frame:
-			LAUNCH_FRAME:
-				check(view.anim.assigned_animation == view.DIVE_CLIP, "launch plays %s (%s)" % [view.DIVE_CLIP, view.anim.assigned_animation])
-				check(up < -0.4, "in the air belly-down: chest front y %.2f" % up)
-				await capture("dive-launch")
-			PRONE_FRAME:
-				check(wr.is_grounded() and view.anim.assigned_animation == view.PRONE_CLIP, "lying prone (%s)" % view.anim.assigned_animation)
-				var pelvis_y: float = got.pelvis.origin.y
-				check(pelvis_y < 0.4 and pelvis_y > 0.05, "pelvis low on the turf, not under it: %.2f m" % pelvis_y)
-				check(up < -0.6, "face-down: chest front y %.2f" % up)
-				var ahead := minf((got.hand_r.origin - got.Head.origin).dot(heading), (got.hand_l.origin - got.Head.origin).dot(heading))
-				check(ahead > 0.0, "both hands ahead of the head: %.2f m" % ahead)
-				var lowest := minf(minf(got.hand_r.origin.y, got.hand_l.origin.y), got.Head.origin.y)
-				check(lowest > -0.05, "hands and head on the turf, not through it: %.2f m" % lowest)
-				await capture("dive-prone")
-			GETUP_FRAME:
-				check(view.anim.assigned_animation == view.GETUP_CLIP, "pushes up through %s (%s)" % [view.GETUP_CLIP, view.anim.assigned_animation])
-				await capture("dive-getup")
+		var clip: String = view.anim.assigned_animation
+		var at: float = view.anim.current_animation_position
+		if not shot.has("launch") and wr.is_diving() and at >= LAUNCH_AT:
+			shot.launch = true
+			check(clip == "Roll", "launch plays Roll (%s)" % clip)
+			check(up < -0.4, "in the air belly-down: chest front y %.2f" % up)
+			await capture("dive-launch")
+		elif not shot.has("prone") and wr.is_grounded() and wr.recover_t <= PRONE_AT:
+			shot.prone = true
+			check(clip == "Swim_Fwd", "lying prone (%s)" % clip)
+			var pelvis_y: float = got.pelvis.origin.y
+			check(pelvis_y < 0.4 and pelvis_y > 0.05, "pelvis low on the turf, not under it: %.2f m" % pelvis_y)
+			check(up < -0.6, "face-down: chest front y %.2f" % up)
+			var ahead := minf((got.hand_r.origin - got.Head.origin).dot(heading), (got.hand_l.origin - got.Head.origin).dot(heading))
+			check(ahead > 0.0, "both hands ahead of the head: %.2f m" % ahead)
+			var lowest := minf(minf(got.hand_r.origin.y, got.hand_l.origin.y), got.Head.origin.y)
+			check(lowest > -0.05, "hands and head on the turf, not through it: %.2f m" % lowest)
+			await capture("dive-prone")
+		elif not shot.has("getup") and clip == "Crouch_Idle" and at >= GETUP_AT:
+			shot.getup = true
+			await capture("dive-getup")
+		elif shot.has("getup") and not wr.is_grounded():
+			standing += 1
+			if standing > 20:   # the blend into Idle (BLEND 0.18 s) is done
+				break
+	check(shot.size() == 3, "launch, prone and push-up all seen: %s" % str(shot.keys()))
 	check(not wr.is_grounded() and got.has("pelvis") and got.pelvis.origin.y > 0.7, "back on his feet")
 	check(worst_up < 0.3, "the chest never faces the sky from the dive to standing: worst y %.2f at frame %d" % [worst_up, worst_at])
 	view.pose.modification_processed.disconnect(grab)
