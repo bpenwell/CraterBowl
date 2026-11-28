@@ -233,6 +233,8 @@ const TACKLE_MASS := 18.0   # the carrier's ragdoll weighs 82; tuned so a hit re
 const CONTACT_HEIGHT := 0.55   # yd
 
 func _tackle_fall(carrier: int, by: int, fumble := false) -> void:
+	if main.replay_active:
+		return
 	var run := _sim_velocity(carrier)
 	if fumble:   # the sim already slowed him (world.gd _fumble): use how he was moving into the hit
 		run = main.views[carrier]._vel

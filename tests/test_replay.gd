@@ -39,6 +39,23 @@ func test_relayed_snap_and_ruling_bracket_client_samples() -> void:
 	assert_eq(r.sample()["phase"], World.Phase.LIVE)
 	assert_eq(r.sample()["ball"], Vector3(at.x, at.y, 1.0))
 
+## #376: a short rewind snaps away from the live get-up run; later samples still interpolate.
+func test_replay_placement_releases_live_chase() -> void:
+	var view := PlayerNode.new()
+	view.place(Vector3(0, 0, -20.0), 0.0)
+	view.chase_sim = true
+	view.place(Vector3(0, 0, -20.5), 0.0)
+	var recorded := Vector3(0, 0, -20.25)
+	view.place_replay(recorded, Replay.F_GROUNDED)
+	view.interpolate(0.0)
+	assert_eq(view.position, recorded, "the first replay frame starts on the recording")
+	assert_eq(view.replay_flags, Replay.F_GROUNDED, "the recording also provides the animation")
+	assert_true(not view.chase_sim, "the live view stops jogging back to the sim spot")
+	view.place_replay(Vector3(0, 0, -21.25), 0)
+	view.interpolate(0.5)
+	assert_eq(view.position, Vector3(0, 0, -20.75), "later replay samples interpolate normally")
+	view.free()
+
 func test_capture_rate_and_contents() -> void:
 	var s := _rec()
 	var w: World = s[0]
