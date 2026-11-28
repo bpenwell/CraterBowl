@@ -200,7 +200,10 @@ func on_event(n: String, d: Dictionary) -> void:
 			_dust(at, 22)
 			shake = maxf(shake, 0.35)
 			if id >= 0 and id < main.views.size():
-				main.views[id].hit()
+				if d.has("carrier"):
+					_tackle_fall(id, int(d.get("by", -1)))
+				else:
+					main.views[id].hit()
 		"touchdown":
 			excite = 1.0
 			shake = maxf(shake, 0.25)
@@ -208,6 +211,9 @@ func on_event(n: String, d: Dictionary) -> void:
 		"interception", "fumble":
 			excite = maxf(excite, 0.7)
 			shake = maxf(shake, 0.2)
+			var c := int(d.get("carrier", -1))
+			if n == "fumble" and c >= 0 and c < main.views.size():
+				_tackle_fall(c, int(d.get("by", -1)), true)   # stripped: down hard, then scrambles up
 		"catch":
 			excite = maxf(excite, 0.35)
 		"snap":
@@ -219,6 +225,37 @@ func on_event(n: String, d: Dictionary) -> void:
 		"breakup":
 			_dust(_athlete_pos(int(d.get("by", -1))), 8)
 	overlay.on_event(n, d)
+
+## A tackled carrier's fall (tackle_fall.gd), from the collision: the tackler hits him at
+## CONTACT_HEIGHT on the side he came from, with an impulse of TACKLE_MASS times their closing
+## velocity. Every tackle is a dive (world.gd), which wraps the thighs.
+const TACKLE_MASS := 18.0   # the carrier's ragdoll weighs 82; tuned so a hit reads from the game camera
+const CONTACT_HEIGHT := 0.55   # yd
+
+func _tackle_fall(carrier: int, by: int, fumble := false) -> void:
+	var run := _sim_velocity(carrier)
+	if fumble:   # the sim already slowed him (world.gd _fumble): use how he was moving into the hit
+		run = main.views[carrier]._vel
+		run.y = 0.0
+	var at: Vector3 = main.views[carrier].global_position
+	var impulse := Vector3.ZERO   # no tackler (the carrier's own dive): he just goes down
+	var side := -run.normalized()
+	if main.world.get_athlete(by) != null:
+		impulse = (_sim_velocity(by) - run) * TACKLE_MASS
+		side = main.views[by].global_position - at
+		side.y = 0.0
+		side = side.normalized()
+	main.views[carrier].tackled(run, impulse, at + Vector3.UP * CONTACT_HEIGHT + side * 0.2, fumble)
+
+## The sim stops everyone at the whistle, before this event: fall back to how the view was
+## actually moving (smoothed over the last frames, so it holds the speed at contact).
+func _sim_velocity(id: int) -> Vector3:
+	var a = main.world.get_athlete(id)
+	var v := Vector3(a.velocity.x, 0.0, -a.velocity.y) if a != null else Vector3.ZERO
+	if v.length() < 0.5 and id >= 0 and id < main.views.size():
+		v = main.views[id]._vel
+		v.y = 0.0
+	return v
 
 func _athlete_pos(id: int) -> Vector3:
 	if id >= 0 and id < main.views.size():
@@ -436,7 +473,7 @@ func _update_rings(w) -> void:
 	var pv: Node3D = main.player
 	ring.visible = pv != null
 	if pv:
-		ring.position = Vector3(pv.global_position.x, 0.035, pv.global_position.z)
+		ring.position = pv.ground_position() + Vector3(0, 0.035, 0)   # under the body, also while he's down
 		var tc: Color = main.TEAM_COLORS[pv.athlete.team]
 		if pv.athlete.team != _ring_team:
 			_ring_team = pv.athlete.team

@@ -15,6 +15,7 @@ match starts, the screens show the score and the configured game clock.
 | Field | Turf, lines, end zones, line-of-scrimmage barrier (see `defense.md`), sideline chains | `src/game/art/field_art.gd`, `los_barrier.gd`, `presentation.gd` |
 | Athletes | Quaternius rig. Your team wears the CC0 mannequin and helmet, and opponents wear a custom uniform. The open helmet hangs on the `Head` bone and wraps the skull down to its base in every clip, with the face in the opening. Jersey numbers are `Label3D` on chest and back. Cosmetics are view-only. | `src/game/player.gd`, `art/character_art.gd`, `art/football_uniforms.gd` |
 | Ball | Pointed leather football (0.44 x 0.26 m, about 1.6x real so it reads from the broadcast camera) with four panel seams, white laces and end stripes (#159). In flight its long axis follows the velocity and it spirals about that axis; loose it rolls on its side on the turf, and an unheld dead ball drops to the turf at the contact spot, where it lies pointing downfield (#341). Flight trail and a landing marker. A carrier holds it in a tucked right arm, high on the chest; a QB holding before the throw holds it centered in front of the chest, one hand on each side (#244). | `src/game/presentation.gd`, `src/game/art/football.gd`, `src/game/art/athlete_pose.gd` |
+| Tackles | A tackled or stripped carrier goes down as a ragdoll hugging the ball, reacting to where and how hard he was hit, then gets up where he fell (#362). See "Tackle fall and get-up" below. | `src/game/art/tackle_fall.gd`, `player.gd`, `presentation.gd` `_tackle_fall` |
 | You | A team-colored ground ring marks the athlete you control. Nothing floats above your head. | `presentation.gd` |
 | Camera | Follow camera behind your player. The mouse moves the aim range on the turf; the mouse wheel zooms it 0.6x–1.6x, middle click resets (#140, saved in settings). Your ground ring always stays above the scorebug (#128). While you're the passer, an over-the-shoulder POV that keeps the line and backs in frame. | `src/game/main.gd` `_update_camera`, `_framed_look`, `_camera_target_yaw` |
 | Effects | Camera shake on big events, tackle dust, touchdown fireworks, crowd excitement, jumbotron | `presentation.gd` |
@@ -39,6 +40,24 @@ code. The play-call picker uses the menu theme and is pinned top-right, over the
 hints are a backed bar of key + action pairs just above the scorebug. Post-game, only the featured
 player stands on stage while their stat card is up, and the hint is a backed pill in the corner.
 
+**Tackle fall and get-up (#362).** View-only: the sim still spots the ball and frees the
+athlete on its own clock; every client runs its own fall, and a replay's fall may differ slightly.
+- **Hit:** on contact the carrier freezes for 0.07 s (hit-stop). Then his legs, spine and head
+  become physics bones (`PhysicalBoneSimulator3D`, 6DOF joints with anatomical limits, so no joint
+  bends backwards) and keep his run. One impulse (the tackler's closing velocity x 18) lands at the
+  contact point, 0.55 yd up on the tackler's side, shared by the nearest bones. A low hit from the
+  front trips him forward over it, a high one knocks the chest back, a hip hit spins him. Speed caps
+  stop a bad solver contact from launching him. His arms stay out of the physics and clamp the ball
+  to his chest.
+- **Dead ball (tackle, sack):** he lies about 1 s, then gets up where he fell. The settled pose
+  blends into the `LayToIdle` clip, so he rises without sliding. As he stands, the hug eases into the
+  normal carry. Then he jogs back to the spot the sim has him at (usually 1–4 yd back, where forward
+  progress stopped him), before the 2 s auto next play.
+- **Fumble:** the stripped carrier ragdolls too and scrambles up at 0.45 s. The sim frees him after
+  0.8 s, so the view runs about 0.3 s late and then catches up, a bit faster than the sim moves.
+- **While he's down:** your ground ring and his blob shadow sit under the body, not the tackle spot.
+  A teleport (the next snap, a replay seek) stands him up on the new spot at once.
+
 **Teams (#233).** The league has eight original clubs, listed in `src/sim/teams.gd`: HELIOS (HEL),
 NEBULA (NEB), ECLIPSE (ECL), REGOLITH (REG), SELENE (SEL), APOGEE (APG), QUASAR (QSR) and TYCHO
 (TYC). Each has a name, a 3-letter code, primary and secondary colors and a logo
@@ -62,6 +81,27 @@ lobby, match intro and game overview are #235, and on the jumbotron #135.
 - Both skinned uniforms use a small culling margin around the imported bounds. The margin keeps the body visible when a close camera follows the knockback pose (#173).
 - **Original look only.** It's a sci-fi lunar dome, never Gridiron's art or UI. Assets must be CC0 or compatible-license, logged in `ASSETS.md`.
 - **Team logos are generated art (#233).** The owner asked for codex-made art, so Codex CLI image generation drew all eight from one shared style prompt (`tools/brand/team_logos_prompt.md`): circular flat badge, thick dark outline, no text, no real-team likeness. `tools/brand/team_logos.gd` keys out the white background and crops them to 512 px. SELENE was regenerated because a crescent with a star reads as a flag or religious symbol. A hand-drawn SVG set was the fallback and was not needed. Provenance is in `ASSETS.md`. The names avoid real pro and college nicknames: `tests/test_teams.gd` checks them against a deny list of space-themed ones (ROCKETS, ASTROS, COMETS, GALAXY…). Teams are pure data in `src/sim/teams.gd` (logo *paths* only), and `src/game/art/team_logos.gd` loads each texture once and caches it for every view. The PNGs are 512 px and imported with mipmaps. Their `.import` files are committed through a `.gitignore` exception (#260); a fresh checkout would otherwise re-import them without mipmaps. Without mipmaps the 34 px scorebug copy shimmers, and a 128 px copy would just be a second file to keep in sync. The scorebug's fixed width (#116) grows from 660 to 744 px for the two logos and their gaps. The movement meters still fit to its left at 1280×720. The overlay's `TEAM_NAMES`/`TEAM_ABBR` now come from the roster, and `set_teams(ids)` swaps them for #234. The end-zone text, POTG and game overview still hard-code HELIOS/NEBULA until #234 routes them through `Teams`; `test_teams.gd` checks they agree with the roster defaults.
+- **The tackle fall is a ragdoll, not clips (#362).** The owner asked for these:
+  - the hit has impact;
+  - the carrier goes down protecting the ball;
+  - no bones bend the wrong way;
+  - the fall reacts to where he was hit.
+
+  Canned clips can't react to the hit point. The arms stay out of the physics (athlete_pose
+  `secure`), so the ball stays tucked whatever the body does. The fall comes only from where and how
+  hard he was hit, never a random push. Joint limits are built in the rest pose (PhysicalBone3D
+  resets to rest on entering the tree), so they are measured from standing straight, not from the
+  hit frame.
+
+  **Get-up:**
+  - Easing the view back to the sim spot *while* he rises made him skate 1–4 yd (the owner flagged
+    it), so he rises in place and jogs back after.
+  - The rig's `root` bone must follow the clip. Holding it in world space while the view root moves
+    slid the body during the blend.
+  - The hug used to switch off at once as he stood, popping the ball from the chest to the hand
+    (0.48 yd in a frame). It is now a weight that eases into the carry.
+  - LayToIdle starts on his back. A prone body rolls over during the 0.3 s blend, which reads as
+    pushing up.
 - **Presentation never owns rules.** Views mirror sim state and are interpolated per render frame, so the sim stays deterministic and testable headless.
 - **Rigged athletes are the most expensive thing on screen** (about 8 ms each on WSL's GL path). Measure before adding bones or characters. Details: `../optimization/README.md`.
 - **The helmet is fitted at runtime, in Head-bone space (#158).** `InnersceneHelmet.glb` as built by `tools/characters/build_uniforms.py` perched on the crown: its shell rode about 0.2 high and was 1.8x the skull's width. `football_uniforms.gd` scales it by 0.75 and drops it 0.106 so the shell's inside clears the crown by about 7 mm, covers the back of the head to the skull base and keeps every cranium vertex inside (median clearance about 1.4 cm). The helmet hangs directly on the `Head` `BoneAttachment3D`, not on the yard-sized gear holder: the holder's 1/MODEL_SCALE made the same fit 7% too small and pushed the scalp through the crown. Fixing it at runtime kept the GLB and Blender recipe untouched. Shrinking or hiding head vertices was not needed, because no cranium vertex reaches the shell in any sampled clip. The opponent uniform's helmet is skinned into its own mesh and was not changed.
