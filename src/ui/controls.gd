@@ -18,13 +18,75 @@ const ACTIONS := [
 	["next", "Next play", KEY_ENTER], ["replay", "Instant replay", KEY_V],
 	["try1", "Extra point / toss: receive", KEY_1], ["try2", "Two-point try / toss: kick", KEY_2],
 ]
-const OTHER_CONTROLS := [
-	"Mouse: look live · middle drag: look pre-snap · hold C: drag to a taunt, release (tap: last taunt)",
-	"QB / passer: mouse aims your view (look higher to throw higher) · hold left click to charge distance, release to throw",
-	"Hold right click: block",
-	"Gamepad: left stick move · right stick QB aim · A snap / jump · B dive · X / Y spin · R3 handoff · RT pass · LT sprint",
-	"Replay viewer: Space pause · Left / Right seek · [ / ] speed",
+## Pause -> Controls page (#134): a few short sections per tab, each row [label, keys, tooltip].
+## A key is an action id (shown as the player's bound key, or its pad input on the Gamepad tab),
+## "@Text" (a fixed input: mouse buttons, sticks, the K kick call) or "+text" (plain text after
+## the chips). Context that used to sit in parentheses lives in the tooltip.
+const PAGE_KEYBOARD := [
+	["Move", [
+		["Move", ["move_up", "move_left", "move_down", "move_right"], "Relative to the camera; for the passer, to the aim"],
+		["Sprint", ["sprint"], "Hold to run faster"],
+		["Spin", ["spin_left", "spin_right"], "Live play: spin left / right, sheds a block"],
+		["Dash", ["dash"], "Burst forward when a move charge is full"],
+		["Dive / tackle", ["tackle"], "Tackle on defense; with the ball, dive for yards"],
+		["Jump", ["snap"], "Live play: jump (uses stamina; more when chained)"],
+	]],
+	["Ball", [
+		["Aim / look", ["@Mouse"], "Passer: look higher to throw higher"],
+		["Snap", ["snap"], "Starts the play (offense)"],
+		["Throw", ["@L-Click", "throw"], "Passer: hold to charge distance, release to throw"],
+		["Handoff", ["handoff"], ""],
+		["Block", ["@R-Click"], "Hold to block"],
+	]],
+	["Game", [
+		["Timeout", ["timeout"], "Team timeout, outside live play"],
+		["Taunt", ["taunt"], "Hold, drag to a taunt, release. Tap repeats your last one"],
+		["Scoreboard", ["scoreboard"], "Hold to show"],
+		["Replay", ["replay"], "Instant replay; its controls show on screen"],
+		["Next play", ["next"], "After the whistle: skip the wait"],
+		["Zoom", ["@Wheel"], "Camera zoom: up = closer. Middle click resets. Not in QB aim"],
+	]],
 ]
+const PAGE_MORE := [
+	["Before the snap", [
+		["Play picker", ["spin_left"], "Open / close the play picker"],
+		["Cycle route", ["tackle"], "Pick your next route"],
+		["Look around", ["@Middle drag"], "Orbit the camera before the snap"],
+		["Break stance", ["snap", "+x2"], "Defense: double-tap to leave your stance early"],
+	]],
+	["Kicks and tries", [
+		["Fair catch", ["snap"], "Returner: signal before the ball lands"],
+		["Kick call", ["@K"], "Kicking team: cycle the kick play"],
+		["Extra point", ["try1"], "After a touchdown. Coin toss: receive"],
+		["Two-point try", ["try2"], "After a touchdown. Coin toss: kick"],
+	]],
+	["Passing", [
+		["Lob", ["lob"], "Hold while releasing a pass for a high arc"],
+	]],
+]
+const PAGE_GAMEPAD := [
+	["Move", [
+		["Move", ["@L-Stick"], ""], ["Sprint", ["sprint"], ""], ["Spin", ["spin_left", "spin_right"], ""],
+		["Dash", ["dash"], ""], ["Dive / tackle", ["tackle"], ""], ["Jump", ["snap"], "Live play"],
+	]],
+	["Ball", [
+		["Aim", ["@R-Stick"], "Passer aim"], ["Snap", ["snap"], ""], ["Throw", ["throw"], ""],
+		["Lob", ["lob"], ""], ["Handoff", ["handoff"], ""],
+	]],
+	["Game", [
+		["Scoreboard", ["scoreboard"], ""], ["Replay", ["replay"], ""], ["Next play", ["next"], ""],
+		["Extra point", ["try1"], "Coin toss: receive"], ["Two-point try", ["try2"], "Coin toss: kick"],
+		["Menu", ["@Start"], ""],
+	]],
+]
+## Short pad names for the Gamepad tab (SDL/Xbox layout).
+const PAD_NAMES := {
+	JOY_BUTTON_A: "A", JOY_BUTTON_B: "B", JOY_BUTTON_X: "X", JOY_BUTTON_Y: "Y",
+	JOY_BUTTON_LEFT_SHOULDER: "LB", JOY_BUTTON_RIGHT_SHOULDER: "RB", JOY_BUTTON_LEFT_STICK: "L3",
+	JOY_BUTTON_RIGHT_STICK: "R3", JOY_BUTTON_BACK: "Back", JOY_BUTTON_DPAD_UP: "D-Up",
+	JOY_BUTTON_DPAD_DOWN: "D-Down", JOY_BUTTON_DPAD_LEFT: "D-Left", JOY_BUTTON_DPAD_RIGHT: "D-Right",
+}
+const PAD_TRIGGER_NAMES := {JOY_AXIS_TRIGGER_RIGHT: "RT", JOY_AXIS_TRIGGER_LEFT: "LT"}
 const SYNTH_DEVICE := -42     # marks events we injected (never re-translated)
 const STICK_DEADZONE := 0.4
 const TRIGGER_ON := 0.5
@@ -131,9 +193,46 @@ static func stick_keys(v: Vector2) -> Dictionary:
 static func key_name(k: int) -> String:
 	return "None" if k == KEY_NONE else OS.get_keycode_string(k)
 
+## Gamepad inputs that act as an action (triggers first: RT throw reads better than nothing).
+static func pad_inputs(action: String) -> Array:
+	var out := []
+	for axis in PAD_TRIGGERS:
+		if PAD_TRIGGERS[axis] == action:
+			out.append(PAD_TRIGGER_NAMES[axis])
+	for button in PAD_BUTTONS:
+		if PAD_BUTTONS[button] == action:
+			out.append(PAD_NAMES[button])
+	return out
+
+## A Controls page resolved for display: [[heading, [{label, keys, note, tip}, ...]], ...].
+## keys are chip texts: bound keys (keyboard pages, so rebinds show) or pad inputs (gamepad).
+static func page(which: String, bindings: Dictionary) -> Array:
+	var src: Array = {"keyboard": PAGE_KEYBOARD, "more": PAGE_MORE, "gamepad": PAGE_GAMEPAD}[which]
+	var out := []
+	for section in src:
+		var rows := []
+		for r in section[1]:
+			var keys := []
+			var note := ""
+			for k in r[1]:
+				if k.begins_with("@"):
+					keys.append(k.substr(1))
+				elif k.begins_with("+"):
+					note = k.substr(1)
+				elif which == "gamepad":
+					keys.append_array(pad_inputs(k))
+				else:
+					keys.append(key_name(key_for(k, bindings)))
+			rows.append({"label": r[0], "keys": keys, "note": note, "tip": r[2]})
+		out.append([section[0], rows])
+	return out
+
+## Plain-text form of the Keyboard and More pages (bound keys).
 static func help_text(bindings: Dictionary) -> String:
 	var lines := []
-	for a in ACTIONS:
-		lines.append("%-24s %s" % [a[1], key_name(key_for(a[0], bindings))])
-	lines.append_array(OTHER_CONTROLS)
+	for which in ["keyboard", "more"]:
+		for section in page(which, bindings):
+			lines.append(str(section[0]).to_upper())
+			for r in section[1]:
+				lines.append("  %-14s %s%s" % [r["label"], " / ".join(r["keys"]), (" " + r["note"]) if r["note"] != "" else ""])
 	return "\n".join(lines)

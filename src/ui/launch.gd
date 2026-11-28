@@ -8,6 +8,7 @@ extends Node
 const SettingsStore := preload("res://src/ui/settings_store.gd")
 const UITheme := preload("res://src/ui/ui_theme.gd")
 const Controls := preload("res://src/ui/controls.gd")
+const ControlsPage := preload("res://src/ui/controls_page.gd")
 const Advertiser := preload("res://src/net/lobby_advertiser.gd")
 const HeadlessMeshGuard := preload("res://src/game/headless_mesh_guard.gd")
 const MENU_SCENE := "res://scenes/menu.tscn"
@@ -250,30 +251,13 @@ func _show_controls(box: VBoxContainer) -> void:
 	if existing != null:
 		existing.visible = not existing.visible
 		return
-	var help := VBoxContainer.new()
-	help.name = "ControlsHelp"
-	help.add_theme_constant_override("separation", 8)
-	box.add_child(help)
-	var bindings := GridContainer.new()
-	bindings.name = "ControlsBindings"
-	bindings.columns = 4
-	bindings.add_theme_constant_override("h_separation", 16)
-	help.add_child(bindings)
-	for action in Controls.ACTIONS:
-		var title := Label.new()
-		title.text = action[1]
-		title.add_theme_font_size_override("font_size", 15)
-		bindings.add_child(title)
-		var key := Label.new()
-		key.text = Controls.key_name(Controls.key_for(action[0], settings.bindings))
-		key.add_theme_font_size_override("font_size", 15)
-		key.add_theme_color_override("font_color", UITheme.CYAN)
-		bindings.add_child(key)
-	var notes := Label.new()
-	notes.name = "ControlsNotes"
-	notes.text = "\n".join(Controls.OTHER_CONTROLS)
-	notes.add_theme_font_size_override("font_size", 15)
-	help.add_child(notes)
+	box.add_child(ControlsPage.new(settings.bindings, pad_connected()))
+
+## Tests set this: headless runs have no gamepad to plug in.
+var pad_connected_override = null
+
+func pad_connected() -> bool:
+	return pad_connected_override if pad_connected_override != null else not Input.get_connected_joypads().is_empty()
 
 func _close_overlay() -> void:
 	if _overlay and is_instance_valid(_overlay):
