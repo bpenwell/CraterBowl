@@ -2,7 +2,7 @@ extends RefCounted
 ## Tackled carrier goes down hugging the ball: a physics ragdoll for the legs, spine and head
 ## (PhysicalBoneSimulator3D), caught by the turf. The arms stay out of the physics and keep the
 ## athlete_pose "secure" hug, so the ball stays tucked whatever the body does. View-only (no sim
-## state): every client runs its own, and replays may differ slightly.
+## state): every client runs its own. Replay releases this modifier and uses its recorded pose.
 ##
 ## Impact: the carrier freezes for HIT_STOP on contact, then the whole body keeps its run and one
 ## impulse lands at the hit point, shared by the bones nearest it (each pushed at that point, so
@@ -13,7 +13,8 @@ extends RefCounted
 ## Get-up: `rise_after` s after the hit he gets up where he lies. The view root moves under the
 ## settled body (pelvis and head lined up with the first frame of LayToIdle) and the ragdoll pose
 ## blends into that clip (Hold, below). He rises where he lies, then jogs back onto the sim spot
-## (player.gd chase_sim): sliding the root while he rises reads as skating. A teleport (next snap, replay seek) still stops it all at once (player.gd place()).
+## (player.gd chase_sim): sliding the root while he rises reads as skating. A teleport or the
+## first replay sample releases the live fall (player.gd).
 
 ## Simulated bones: [bone, child (capsule end), radius, mass, bend limits (deg, lower, upper),
 ## side bend +- (deg), twist +- (deg)].
@@ -133,6 +134,7 @@ func stop() -> void:
 	rise_t = -1.0
 	_free_ragdoll()
 	if _hold:
+		_hold.active = false
 		_hold.queue_free()
 		_hold = null
 	view.pose.secure = 0.0

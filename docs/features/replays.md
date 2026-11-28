@@ -80,6 +80,9 @@ post-game overview or the command line. Online skip votes, a free camera and cli
 ## Design decisions
 - Playback is view-only: views read interpolated replay frames, and the sim is never rewound, so replay can't desync a match.
   Capturing on the authoritative tick keeps the saved match continuous as the host's view shows an earlier play.
+- The first replay sample releases any live tackle fall or get-up and snaps the athlete onto
+  the recorded timeline, even on a short rewind. Live tackle and fumble events cannot start a
+  fall in a replayed view. Playback uses the recorded animation flags (#376).
 - Plays are classified by the recorder from sim events, so the sim needs no replay-specific code and saved files carry their highlights.
   Joining clients use the host's snap and ruling events to bracket their locally interpolated frames.
 - The push and catch bits are view rules evaluated on the sim (`player.gd` `replay_bits`). Push: engaged and slower than

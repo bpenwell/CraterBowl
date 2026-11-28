@@ -702,6 +702,20 @@ func _locomotion(spd: float, presnap: bool, backward := false) -> void:
 	else:
 		_play("Sprint", BLEND, clampf(spd / 6.8, 0.8, 1.7))
 
+## The first replay frame takes over from the live body even on a short rewind.
+func place_replay(p: Vector3, flags: int) -> void:
+	if replay_flags < 0:
+		if is_falling():
+			fall.stop()
+			if anim:
+				anim.stop()
+				_cur = ""
+		_has_pose = false   # place() snaps and clears the post-tackle chase
+		_last_pos = p
+		_vel = Vector3.ZERO
+	replay_flags = flags
+	place(p, rotation.y)
+
 ## Record a new sim (or replay) pose, once per physics tick. Big jumps snap.
 func place(p: Vector3, yaw: float) -> void:
 	if not _has_pose or p.distance_to(_cur_pos) > TELEPORT_DIST:
