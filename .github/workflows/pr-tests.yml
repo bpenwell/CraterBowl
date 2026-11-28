@@ -14,7 +14,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Rendering plus the full gate can exceed 20 minutes on busy runners (#430).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Run CI setup regression tests
