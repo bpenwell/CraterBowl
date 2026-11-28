@@ -219,11 +219,19 @@ and full rollback of the whole sim is overkill when the host owns every contact.
 
 ## Interpolation (`interpolator.gd`)
 
-- `push(tick, xy, ball)` stores `tick / TICK_RATE` (hard-coded 60), drops out-of-order, keeps 32 entries.
-- `main.gd:_apply_interpolation` samples at `latest_snap_tick/60 + (now - latest_snap_at) - 0.1` and
-  writes positions for every athlete except ours, and the ball unless we hold it. Only position is
-  interpolated; velocity/facing/flags come from the latest snapshot. Views then do per-frame render
-  interpolation as offline (architecture.md → Tick model).
+- `push(tick, xy, ball, snap)` stores `tick / TICK_RATE` (hard-coded 60) and the snapshot, drops
+  out-of-order, keeps 32 entries.
+- `main.gd:_apply_interpolation` samples at `interp.draw_time(...)`: `latest_snap_tick/60 + (now - latest_snap_at) - 0.1`,
+  never earlier than the last draw (a hitch runs the wall clock ahead, and the next snapshot used to pull it back,
+  replaying flags: a landed diver standing up again, #421). It
+  writes positions for every athlete except ours, and the ball unless we hold it. Position is
+  interpolated; every other athlete field (velocity, facing, role, flags, dive/ground/jump/move
+  timers) comes from the buffered snapshot **nearest** the sample time
+  (`Protocol.apply_athlete_state`), so a remote dive clip starts with the drawn lunge and the diver
+  lies where it landed (#421; they used to come from the latest snapshot, 0.1 s ahead of the body).
+  `_on_snapshot` re-applies interpolation right after `apply_snapshot`, so no frame draws a remote
+  athlete with the latest state. Views then do per-frame render interpolation as offline
+  (architecture.md → Tick model).
 
 ## Lobby flow (`lobby.gd`, `main.gd`)
 

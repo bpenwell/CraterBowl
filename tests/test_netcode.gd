@@ -82,6 +82,25 @@ func test_interpolation_midpoint_and_clamps() -> void:
 	assert_near(it.sample(0.0)["xy"][0], 0.0, 0.001, "before first -> first")
 	assert_near(it.sample(99.0)["xy"][0], 10.0, 0.001, "after last -> last")
 
+## #421: flags and timers come from the snapshot nearest the drawn time, not the latest one.
+func test_interpolation_samples_nearest_snapshot() -> void:
+	var it := Interp.new()
+	it.push(60, PackedFloat32Array([0, 0]), Vector3.ZERO, {"t": 60})
+	it.push(66, PackedFloat32Array([10, 0]), Vector3.ZERO, {"t": 66})
+	assert_eq(it.sample(62.0 / 60.0)["snap"]["t"], 60, "nearer the older snapshot")
+	assert_eq(it.sample(64.0 / 60.0)["snap"]["t"], 66, "nearer the newer snapshot")
+	assert_eq(it.sample(0.0)["snap"]["t"], 60, "before first -> first")
+	assert_eq(it.sample(99.0)["snap"]["t"], 66, "after last -> last")
+
+## #421: a hitch runs the draw clock ahead; the next snapshot must not pull it back.
+func test_draw_time_never_rewinds() -> void:
+	var it := Interp.new()
+	assert_near(it.draw_time(60, 0.0, 0.1), 0.9, 0.0001, "delay behind the newest snapshot")
+	var after_hitch := it.draw_time(60, 0.3, 0.1)
+	assert_near(after_hitch, 1.2, 0.0001, "wall time advances it")
+	assert_near(it.draw_time(62, 0.0, 0.1), after_hitch, 0.0001, "the next snapshot doesn't rewind it")
+	assert_true(it.draw_time(80, 0.0, 0.1) > after_hitch, "and it moves on once snapshots catch up")
+
 func test_interpolation_ignores_out_of_order() -> void:
 	var it := Interp.new()
 	it.push(60, PackedFloat32Array([0, 0]), Vector3.ZERO)

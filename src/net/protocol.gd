@@ -145,26 +145,9 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 	w.last_possession = s.get("pt", w.offense_team)
 	var a: PackedFloat32Array = s["a"]
 	var r: PackedInt32Array = s["r"]
-	var moves: PackedFloat32Array = s.get("moves", PackedFloat32Array())
 	for i in mini(w.athletes.size(), r.size() / 3):
-		var ath = w.athletes[i]
-		var o := i * 7
-		ath.position = Vector2(a[o], a[o + 1])
-		ath.velocity = Vector2(a[o + 2], a[o + 3])
-		ath.facing = Vector2(a[o + 4], a[o + 5])
-		ath.stamina = a[o + 6]
-		ath.role = r[i * 3]
-		var flags := r[i * 3 + 1]
-		ath.dive_t = maxi(1, flags >> DIVE_SHIFT & DIVE_MASK) / Tick.HZ if flags & DIVE_FLAG else 0.0
-		ath.recover_t = maxi(1, flags >> GROUND_SHIFT & GROUND_MASK) / Tick.HZ if flags & GROUND_FLAG else 0.0
-		ath.set_lock = (flags & LOCK_FLAG) != 0
-		ath.blocking = (flags & BLOCK_FLAG) != 0
-		ath.spin_move = (flags & SPIN_FLAG) != 0
-		if moves.size() >= i * 2 + 2:
-			ath.move_charge = moves[i * 2]
-			ath.move_t = moves[i * 2 + 1]
-		ath.spin_dir = -1 if flags & SPIN_LEFT_FLAG else 1
-		ath.jump_t = minf(float(flags >> JUMP_SHIFT & JUMP_MASK) / 1000.0, T.JUMP_TIME)
+		w.athletes[i].position = Vector2(a[i * 7], a[i * 7 + 1])
+		apply_athlete_state(w.athletes[i], s, i)
 	var b: PackedFloat32Array = s["b"]
 	w.ball.state = int(b[0])
 	w.ball.holder_id = int(b[1])
@@ -212,6 +195,29 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 ## Seconds left on a timer as whole ticks for the wire: at least 1 while it runs, capped to the field.
 static func _ticks(t: float, cap: int) -> int:
 	return clampi(roundi(t * Tick.HZ), 1, cap) if t > 0.0 else 0
+
+## Athlete i's state from a snapshot, everything but position. Clients apply it to remote
+## athletes from the interpolated snapshot so clips and timers match the drawn position (#421).
+static func apply_athlete_state(ath, s: Dictionary, i: int) -> void:
+	var a: PackedFloat32Array = s["a"]
+	var r: PackedInt32Array = s["r"]
+	var moves: PackedFloat32Array = s.get("moves", PackedFloat32Array())
+	var o := i * 7
+	ath.velocity = Vector2(a[o + 2], a[o + 3])
+	ath.facing = Vector2(a[o + 4], a[o + 5])
+	ath.stamina = a[o + 6]
+	ath.role = r[i * 3]
+	var flags := r[i * 3 + 1]
+	ath.dive_t = maxi(1, flags >> DIVE_SHIFT & DIVE_MASK) / Tick.HZ if flags & DIVE_FLAG else 0.0
+	ath.recover_t = maxi(1, flags >> GROUND_SHIFT & GROUND_MASK) / Tick.HZ if flags & GROUND_FLAG else 0.0
+	ath.set_lock = (flags & LOCK_FLAG) != 0
+	ath.blocking = (flags & BLOCK_FLAG) != 0
+	ath.spin_move = (flags & SPIN_FLAG) != 0
+	if moves.size() >= i * 2 + 2:
+		ath.move_charge = moves[i * 2]
+		ath.move_t = moves[i * 2 + 1]
+	ath.spin_dir = -1 if flags & SPIN_LEFT_FLAG else 1
+	ath.jump_t = minf(float(flags >> JUMP_SHIFT & JUMP_MASK) / 1000.0, T.JUMP_TIME)
 
 static func _finite_v(v) -> bool:
 	return v is Vector2 and is_finite(v.x) and is_finite(v.y)
