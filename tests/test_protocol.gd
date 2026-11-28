@@ -55,8 +55,9 @@ func test_snapshot_round_trip() -> void:
 	assert_eq(b.downs.down, 3, "down")
 	assert_true(bytes.size() < 1400, "fits one MTU-ish packet (%d bytes)" % bytes.size())
 
-## #389: a stumble's tier and ticks left ride in the flags int (bits 6-7, 18-25) next to the
-## jump time (bits 8-17): exact on the client, so its prediction slows down the way the host's does.
+## #389: a stumble's tier rides in the flags int (bits 6-7, beside the jump time in 8-17) and its
+## ticks left in the team int (bits 8-13): exact on the client, so its prediction slows down the way
+## the host's does.
 func test_snapshot_round_trip_stumble() -> void:
 	var a := _match()
 	a.world.snap()

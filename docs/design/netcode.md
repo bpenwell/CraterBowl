@@ -178,7 +178,7 @@ Whether CI should enforce the bump is #223; today it's a review rule.
 |---|---|
 | `t` | server tick (`main.gd:net_tick`) |
 | `a` | `PackedFloat32Array`, 7 per athlete: pos x/y, vel x/y, facing x/y, stamina |
-| `r` | `PackedInt32Array`, 3 per athlete: role, flags (DIVE 1, GROUND 2, LOCK 4, BLOCK 8, SPIN 16, SPIN_LEFT 32; bits 6-7: stumble tier, #389; bits 8-17: jump time left in ms, #379; bits 18-25: stumble ticks left, exact so the client's prediction slows the way the host's does, #389), team. `trip_immune_t` stays host-only: trips are decided by the host, the client only predicts the slowdown. Adding the stumble rule and bits bumped `Protocol.VERSION` 12 to 13 |
+| `r` | `PackedInt32Array`, 3 per athlete: role, flags (DIVE 1, GROUND 2, LOCK 4, BLOCK 8, SPIN 16, SPIN_LEFT 32; bits 6-7: stumble tier, #389; bits 8-17: jump time left in ms, #379), team (bits 0-7; bits 8-13: stumble ticks left, exact so the client's prediction slows the way the host's does, #389. Clients never decode the team, and the flags' high bits are #397's). `trip_immune_t` stays host-only: trips are decided by the host, the client only predicts the slowdown. Adding the stumble rule and bits bumped `Protocol.VERSION` 12 to 13 |
 | `moves` | 2 per athlete: `move_charge`, `move_t` |
 | `b` | ball: state, holder, pos xyz, vel xyz |
 | `d`, `s`, `c`, `to` | downs (offense, down, los, first-down y), score, clock (half, remaining, play clock, final, quarter, quarter length in seconds), timeouts |

@@ -17,7 +17,8 @@ const CROSSED_LOS_FLAG := 2
 const JUMP_SHIFT := 8          # flags bits 8-17: jump time left in ms (0 = on the ground, #379)
 const JUMP_MASK := 0x3FF       # 10 bits: up to 1023 ms (JUMP_TIME is 600)
 const STUMBLE_TIER_SHIFT := 6  # flags bits 6-7: Athlete.Stumble tier (#389)
-const STUMBLE_TICK_SHIFT := 18 # flags bits 18-25: stumble ticks left (exact, so prediction matches)
+const TEAM_STUMBLE_SHIFT := 8  # team int bits 8-13: stumble ticks left (exact, so prediction matches;
+const TEAM_STUMBLE_MASK := 63  # flags bits 18+ are #397's dive/ground ticks). Clients never read the team.
 const Emotes := preload("res://src/sim/emotes.gd")
 
 static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
@@ -32,9 +33,11 @@ static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
 		if ath.is_spinning() and ath.spin_dir < 0:
 			flags |= SPIN_LEFT_FLAG
 		flags |= mini(roundi(ath.jump_t * 1000.0), JUMP_MASK) << JUMP_SHIFT
+		var stumble_ticks := 0
 		if ath.stumble_t > 0.0:
-			flags |= (ath.stumble_tier << STUMBLE_TIER_SHIFT) | (mini(roundi(ath.stumble_t * Tick.HZ), 255) << STUMBLE_TICK_SHIFT)
-		r.append_array([ath.role, flags, ath.team])
+			flags |= ath.stumble_tier << STUMBLE_TIER_SHIFT
+			stumble_ticks = mini(roundi(ath.stumble_t * Tick.HZ), TEAM_STUMBLE_MASK)
+		r.append_array([ath.role, flags, ath.team | (stumble_ticks << TEAM_STUMBLE_SHIFT)])
 		moves.append_array([ath.move_charge, ath.move_t])
 	var b = w.ball
 	var pass_flags := (PASS_THROWN_FLAG if w.forward_pass_thrown else 0) | (CROSSED_LOS_FLAG if w.ball_crossed_los else 0)
@@ -165,7 +168,7 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 		ath.spin_dir = -1 if flags & SPIN_LEFT_FLAG else 1
 		ath.jump_t = minf(float((flags >> JUMP_SHIFT) & JUMP_MASK) / 1000.0, T.JUMP_TIME)
 		ath.stumble_tier = (flags >> STUMBLE_TIER_SHIFT) & 3
-		ath.stumble_t = float((flags >> STUMBLE_TICK_SHIFT) & 255) / Tick.HZ if ath.stumble_tier != 0 else 0.0
+		ath.stumble_t = float((r[i * 3 + 2] >> TEAM_STUMBLE_SHIFT) & TEAM_STUMBLE_MASK) / Tick.HZ if ath.stumble_tier != 0 else 0.0
 	var b: PackedFloat32Array = s["b"]
 	w.ball.state = int(b[0])
 	w.ball.holder_id = int(b[1])
