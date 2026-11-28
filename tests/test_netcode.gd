@@ -82,6 +82,16 @@ func test_interpolation_midpoint_and_clamps() -> void:
 	assert_near(it.sample(0.0)["xy"][0], 0.0, 0.001, "before first -> first")
 	assert_near(it.sample(99.0)["xy"][0], 10.0, 0.001, "after last -> last")
 
+## #421: flags and timers come from the snapshot nearest the drawn time, not the latest one.
+func test_interpolation_samples_nearest_snapshot() -> void:
+	var it := Interp.new()
+	it.push(60, PackedFloat32Array([0, 0]), Vector3.ZERO, {"t": 60})
+	it.push(66, PackedFloat32Array([10, 0]), Vector3.ZERO, {"t": 66})
+	assert_eq(it.sample(62.0 / 60.0)["snap"]["t"], 60, "nearer the older snapshot")
+	assert_eq(it.sample(64.0 / 60.0)["snap"]["t"], 66, "nearer the newer snapshot")
+	assert_eq(it.sample(0.0)["snap"]["t"], 60, "before first -> first")
+	assert_eq(it.sample(99.0)["snap"]["t"], 66, "after last -> last")
+
 func test_interpolation_ignores_out_of_order() -> void:
 	var it := Interp.new()
 	it.push(60, PackedFloat32Array([0, 0]), Vector3.ZERO)

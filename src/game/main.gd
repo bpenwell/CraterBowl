@@ -1208,14 +1208,16 @@ func _on_snapshot(snap: Dictionary) -> void:
 	if old_phase != world.phase and world.phase == World.Phase.PRESNAP:
 		play_picker_open = true
 		camera_orbit = 0.0
-	interp.push(int(snap["t"]), Interp.xy_from_snapshot(snap), Interp.ball_from_snapshot(snap))
+	interp.push(int(snap["t"]), Interp.xy_from_snapshot(snap), Interp.ball_from_snapshot(snap), snap)
 	latest_snap_tick = int(snap["t"])
 	latest_snap_at = Time.get_ticks_msec() / 1000.0
 	var me = world.get_athlete(my_id)
 	if me:
 		predictor.reconcile(me, int(snap.get("ack", {}).get(my_id, 0)), world)
+	_apply_interpolation()   # others back on the delayed timeline before any frame draws the latest state
 
-## Client: draw others ~100 ms in the past, interpolated between snapshots.
+## Client: draw others ~100 ms in the past, interpolated between snapshots, with the flags and
+## timers of the snapshot nearest that time so clips match the drawn position (#421).
 func _apply_interpolation() -> void:
 	if interp.buf.is_empty():
 		return
@@ -1226,6 +1228,7 @@ func _apply_interpolation() -> void:
 	for i in mini(world.athletes.size(), xy.size() / 2):
 		if i != my_id:
 			world.athletes[i].position = Vector2(xy[i * 2], xy[i * 2 + 1])
+			Protocol.apply_athlete_state(world.athletes[i], smp["snap"], i)
 	if not world.ball.is_held_by(my_id):
 		world.ball.position = smp["ball"]
 

@@ -1,6 +1,8 @@
 extends "res://tests/visual/harness.gd"
 ## #397: a real loopback joiner shows a remote diver lying on the turf before the get-up,
 ## with the same dive and ground timing as the host.
+## #421: the joiner applies the dive and ground flags on the interpolated (INTERP_DELAY) timeline,
+## so the dive clip starts with the lunge and the diver lies where it landed.
 
 const NetSession := preload("res://src/net/net_session.gd")
 const Protocol := preload("res://src/net/protocol.gd")
@@ -55,9 +57,16 @@ func _run() -> void:
 	var diver = world.athletes[DIVER]
 	diver.position = world.athletes[3].position + Vector2(-4.0, 1.0)
 	diver.facing = Vector2.RIGHT
-	check(diver.start_dive(), "host starts the remote dive")
+	await _advance(20)   # let the joiner's interpolation settle on the moved diver
 	var seen = game.world.athletes[DIVER]
 	var view = game.views[DIVER]
+	var start_pos: Vector2 = seen.position
+	check(start_pos.distance_to(diver.position) < 0.01, "joiner's diver settled before the dive")
+	check(diver.start_dive(), "host starts the remote dive")
+	var lunge_at := -1
+	var dive_on := -1
+	var land_pos := Vector2.ZERO
+	var land_gap := -1.0
 	var saw_dive := false
 	var host_down := -1
 	var host_up := -1
@@ -70,12 +79,21 @@ func _run() -> void:
 		await _advance(1)
 		if host_down < 0 and diver.is_grounded():
 			host_down = tick
+			land_pos = diver.position
+		if lunge_at < 0 and seen.position.distance_to(start_pos) > 0.05:
+			lunge_at = tick
+		if dive_on < 0 and seen.is_diving():
+			dive_on = tick
 		if host_down >= 0 and host_up < 0 and not diver.is_grounded():
 			host_up = tick
 		saw_dive = saw_dive or seen.is_diving()
 		if client_down < 0 and seen.is_grounded():
 			client_down = tick
 			first_recover = seen.recover_t
+			land_gap = seen.position.distance_to(land_pos)
+			# The diver goes down where it landed, not a lunge-length short of it.
+			check(view.is_inside_tree(), "joiner has the diver's view")
+			await capture("remote-dive-landing")
 		if client_down >= 0 and client_up < 0 and not seen.is_grounded():
 			client_up = tick
 		if client_down >= 0 and lay_at < 0 and view._cur == "u2/LayToIdle":
@@ -89,7 +107,11 @@ func _run() -> void:
 			break
 	print("DIVE397 host_down=%d host_up=%d client_down=%d client_up=%d lay_at=%d first_recover=%.3f" % [
 		host_down, host_up, client_down, client_up, lay_at, first_recover])
+	print("DIVE421 lunge_at=%d dive_on=%d land_gap=%.2f" % [lunge_at, dive_on, land_gap])
 	check(saw_dive, "joiner sees the dive flag")
+	check(lunge_at >= 0 and absi(dive_on - lunge_at) <= 1,
+		"dive flag starts with the interpolated lunge (flag %d, lunge %d)" % [dive_on, lunge_at])
+	check(land_gap >= 0.0 and land_gap < 0.4, "joiner's diver goes down at the landing spot (%.2f m off)" % land_gap)
 	check(host_down >= 0 and client_down >= 0, "host and joiner both see the diver grounded")
 	check(first_recover >= T.DIVE_RECOVER - 0.1, "joiner decodes the remaining ground time (%.3f s)" % first_recover)
 	var host_ticks := host_up - host_down
