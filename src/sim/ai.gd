@@ -115,7 +115,9 @@ func think(world, human_ids: Array) -> Dictionary:
 		exchange = false
 	var loose: bool = world.ball.state == world.ball.State.LOOSE
 	var in_air: bool = c == null and world.ball.state == world.ball.State.IN_FLIGHT and world.forward_pass_thrown
-	var pass_phase: bool = c != null and c.team == world.offense_team and c.role == Athlete.Role.QB and c.position.y <= world.los_y and not world.forward_pass_thrown and (not run_call or exchange)
+	var pass_phase: bool = c != null and c.team == world.offense_team and c.role == Athlete.Role.QB \
+		and c.position.y <= world.los_y and not world.forward_pass_thrown and (world.is_chaos() or not world.ball_crossed_los) \
+		and (not run_call or exchange)
 	var landing := _landing_point(world) if in_air else Vector2.INF
 	if world.kick_live:
 		return _kick_coverage(world, human_ids, landing)

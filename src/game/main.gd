@@ -449,6 +449,8 @@ func pov_active() -> bool:
 		return false
 	if world.phase == World.Phase.PRESNAP:
 		return true   # the center holds it; you're lining up the throw
+	if world.ball_crossed_los:
+		return false
 	var c = world.carrier()
 	return (c == null or c.id == controlled_id) and a.position.y <= world.los_y + 1.0
 

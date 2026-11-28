@@ -118,8 +118,8 @@ func test_throw_before_the_lineman_crosses_is_legal_after_is_a_foul() -> void:
 	assert_eq(m2.world.flags.size(), 1, "ball thrown after he crossed: flag")
 
 func test_run_lifts_the_zone_but_a_handoff_does_not() -> void:
-	# The QB carries it past the line: a run. Linemen may block downfield for the rest of the down,
-	# even if he drifts back behind the line and throws (that throw is #312's problem).
+	# The QB carries it past the line: a run. The zone stays lifted and passing stays closed
+	# if he retreats behind the line (#312).
 	var m := _live()
 	var w := m.world
 	var qb := w.find_role(0, R.QB)
@@ -129,7 +129,10 @@ func test_run_lifts_the_zone_but_a_handoff_does_not() -> void:
 	assert_true(w.ball_crossed_los and not w.blocking_zone_active(), "run: zone lifted")
 	ol.position.y = w.los_y + 9.0
 	qb.position.y = w.los_y - 1.0
-	_pass(m)
+	w.step({}, DT)
+	assert_true(not w.blocking_zone_active(), "retreat keeps the zone lifted")
+	assert_true(not w.throw(qb.id, Vector2(qb.position.x, w.los_y + 15.0), 0.7),
+		"the retreated keeper cannot pass")
 	assert_true(w.flags.is_empty(), "no blocking-zone flag after a run")
 	# A handoff behind the line is not a run: a halfback pass with a lineman downfield is a foul.
 	var m2 := _live()

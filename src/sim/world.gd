@@ -69,7 +69,7 @@ var kick_spot := Vector2.ZERO
 var fair_catch_id := -1  # returner who signaled a fair catch on this kick (#189), else -1
 var _kick_rest_t := 0.0
 var flags: Array = []            # penalty records thrown this down (#253; Penalties.make)
-var ball_crossed_los := false    # a runner took the ball past the LOS this down: the blocking zone lifts (#253)
+var ball_crossed_los := false    # a runner took the ball past the LOS this down (#253, #312)
 
 func _init() -> void:
 	_impact_rolls = 0
@@ -626,7 +626,7 @@ func can_throw(id: int) -> bool:
 	var a := get_athlete(id)
 	if a == null or phase != Phase.LIVE or not ball.is_held_by(id) or not a.can_act() or a.move_t > 0.0 or a.is_jumping():
 		return false
-	return rules["anyone_throws"] or (not forward_pass_thrown and a.position.y <= los_y)
+	return rules["anyone_throws"] or (not forward_pass_thrown and not ball_crossed_los and a.position.y <= los_y)
 
 ## Throw from the holder toward target (field plane) with power 0..1.
 func throw(id: int, target: Vector2, power: float, lob: bool = false, inherit_motion := true) -> bool:

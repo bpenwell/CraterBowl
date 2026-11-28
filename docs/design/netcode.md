@@ -180,7 +180,8 @@ Whether CI should enforce the bump is #223; today it's a review rule.
 | `moves` | 2 per athlete: `move_charge`, `move_t` |
 | `b` | ball: state, holder, pos xyz, vel xyz |
 | `d`, `s`, `c`, `to` | downs (offense, down, los, first-down y), score, clock (half, remaining, play clock, final, quarter, quarter length in seconds), timeouts |
-| `ph`, `off`, `los`, `fpt`, `pt`, `ms`, `tp` | world phase, offense team, LOS, forward pass thrown, last possession, match state, try points |
+| `ph`, `off`, `los`, `pt`, `ms`, `tp` | world phase, offense team, LOS, last possession, match state, try points |
+| `pf` | Pass flags. Bit 0 tracks whether a forward pass has been thrown. Bit 1 tracks whether a runner has carried the ball across the LOS this down (#312). |
 | `pl`, `rt`, `dc`, `rf`, `hc`, `cs` | play name, route index per athlete (-1 none), defensive call, run flipped, handoff cooldown, Chaosball streak/hold |
 | `ack` | athlete id → last input `seq` the server consumed (`NetSession.acks()`) |
 

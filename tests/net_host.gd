@@ -78,6 +78,8 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.event.disconnect(_finish_after_handoff)
 	# Let the joiner observe the handoff before setting up the final score.
 	await create_timer(0.5).timeout
+	_record_retreated_keeper()
+	await create_timer(0.45).timeout
 	main.stats.award_stats.clear()
 	_record_pass_before_seat_replacement()
 	_record_run_before_seat_replacement()
@@ -92,6 +94,17 @@ func _finish_after_handoff(event: String, _data: Dictionary) -> void:
 	main.world.phase = main.World.Phase.DEAD
 	main.series.last_result = {"type": "incomplete"}
 	main.next_play()
+
+## Let the real client observe the host's crossing state after it has retreated.
+func _record_retreated_keeper() -> void:
+	main.series.start(1, 37.0)
+	var world = main.world
+	var qb = world.find_role(1, main.Athlete.Role.QB)
+	world.start_live_with(qb.id)
+	qb.position = Vector2(6.0, world.los_y + 2.0)
+	world.step({}, 1.0 / world.Tick.HZ)
+	qb.position.y = world.los_y - 3.0
+	world.step({}, 1.0 / world.Tick.HZ)
 
 ## Give the real client the QB seat between another player's throw and catch.
 func _record_pass_before_seat_replacement() -> void:

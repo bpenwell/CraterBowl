@@ -56,6 +56,7 @@ var snapped_run := false
 var sent_handoff := false
 var handoff_to := -1
 var remote_handoff_confirmed := false
+var checked_retreated_keeper := false
 var xp_before := 0
 var games_before := 0
 var had_first_td := false
@@ -221,6 +222,8 @@ func _physics_process(_dt: float) -> bool:
 		equipped_number = main.views[aid].number_text
 	if bad_snap_sent_at > 0 and f > bad_snap_sent_at + 90:
 		_test_remote_handoff()
+	if remote_handoff_confirmed and not checked_retreated_keeper:
+		_check_retreated_keeper()
 	if f == 1500 or (remote_handoff_confirmed and got_awards and got_summary):
 		check(saw_lobby and lobby_size == 5 and lobby_code.length() == 11, "joined by code into the private lobby (5v5, code %s)" % lobby_code)
 		check(quarter_lobby_seen and quarter_clock_seen, "host lobby Q and H select three-minute quarters on both machines")
@@ -252,6 +255,7 @@ func _physics_process(_dt: float) -> bool:
 		check(requested_slants and called_run, "remote QB audibles from Slants to Inside Zone in the play picker")
 		check(remote_handoff_confirmed, "client QB hands off through G and sees the host's RB possession")
 		check(remote_handoff_confirmed and main.controlled_id == aid, "online QB keeps the same athlete after the handoff")
+		check(checked_retreated_keeper, "received the host's retreated keeper snapshot")
 		check(got_awards and main.profile.xp == xp_before + 100 and main.profile.games == games_before + 1,
 			"same-named losing client receives only its own 100 XP")
 		check(main.profile.achievements.has("first_td") == had_first_td
@@ -265,6 +269,16 @@ func _physics_process(_dt: float) -> bool:
 		print("NET FLOW " + ("PASS" if ok else "FAIL"))
 		quit(0 if ok else 1)
 	return false
+
+func _check_retreated_keeper() -> void:
+	var world = main.world
+	if world.los_y != 37.0 or not world.ball.is_held_by(aid) or world.get_athlete(aid).position.y > world.los_y:
+		return
+	checked_retreated_keeper = true
+	check(world.ball_crossed_los and not main.can_pass() and not main.pov_active(),
+		"snapshot closes the passing preview behind the line after a keeper crosses")
+	_key(KEY_J)
+	check(not main.charging and world.ball.is_held_by(aid), "retreated online keeper presses J without starting a throw")
 
 func _test_remote_handoff() -> void:
 	var w = main.world

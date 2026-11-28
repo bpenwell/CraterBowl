@@ -57,8 +57,9 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
   distance (2 to 65 yd). Left click / **J** throws on press at a fixed `PLAYER_PASS_POWER` (0.68, about 24 yd/s); the
   solver picks the flattest angle that crosses the aim point at `CATCH_HEIGHT` (1.1 yd). Hold **Ctrl** (gamepad RB) for
   a lob: a fixed `LOB_ANGLE` (65°) arc with the speed solved to land on the target.
-- Legal throw: you hold the ball, play is live, you aren't diving, grounded, mid dash/spin or in the air from a jump, you are at or behind the
-  LOS, and no forward pass has been thrown. Any carrier qualifies, so an RB behind the line after a handoff can throw.
+- In Classic, you can throw while you hold the ball in live play, at or behind the line of scrimmage, before the ball
+  has been carried across the line or a forward pass has been thrown. Diving, being grounded, jumping, or a dash or
+  spin in progress also prevents the throw. An RB can throw after a handoff while those conditions hold.
 - A ball that hits the ground is incomplete.
 
 ### Catching
@@ -83,6 +84,10 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
 - Inside Zone hits an interior gap; Outside Sweep goes wide. Bots flip the sweep automatically.
 
 ## Design decisions
+
+- **Crossing the line commits to the run (#312).** The same down-level flag lifts the blocking zone and closes the
+  first-person passing view and aim preview. Retreating behind the line keeps the play live as a run. Disabling the
+  throw at the input and sim gates gives the runner immediate feedback and avoids a separate penalty ruling.
 - The snap is a short visible flight, not a teleport, so its timing is readable.
 - Aim point plus solved arc over homing passes (no skill) or golf-style angle/power (too fiddly). The arc preview
   makes it learnable.

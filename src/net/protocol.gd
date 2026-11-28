@@ -10,6 +10,8 @@ const LOCK_FLAG := 4
 const BLOCK_FLAG := 8
 const SPIN_FLAG := 16
 const SPIN_LEFT_FLAG := 32   # spin turned left (visual side)
+const PASS_THROWN_FLAG := 1   # pass flags, separate from athlete flags
+const CROSSED_LOS_FLAG := 2
 const JUMP_SHIFT := 8          # flags bits 8+: jump time left in ms (0 = on the ground, #379)
 const Emotes := preload("res://src/sim/emotes.gd")
 
@@ -28,8 +30,9 @@ static func encode_snapshot(m, tick: int, acks: Dictionary = {}) -> Dictionary:
 		r.append_array([ath.role, flags, ath.team])
 		moves.append_array([ath.move_charge, ath.move_t])
 	var b = w.ball
+	var pass_flags := (PASS_THROWN_FLAG if w.forward_pass_thrown else 0) | (CROSSED_LOS_FLAG if w.ball_crossed_los else 0)
 	var snap := {
-		"k": "snap", "t": tick, "ph": w.phase, "off": w.offense_team, "los": w.los_y, "fpt": w.forward_pass_thrown, "pt": w.last_possession,
+		"k": "snap", "t": tick, "ph": w.phase, "off": w.offense_team, "los": w.los_y, "pf": pass_flags, "pt": w.last_possession,
 		"a": a, "r": r, "moves": moves,
 		"b": PackedFloat32Array([b.state, b.holder_id, b.position.x, b.position.y, b.position.z, b.velocity.x, b.velocity.y, b.velocity.z]),
 		"d": PackedFloat32Array([m.downs.offense_team, m.downs.down, m.downs.los, m.downs.first_down_y]),
@@ -60,7 +63,10 @@ static func valid_snapshot(s: Dictionary, athletes: int) -> bool:
 			return false
 	if s["ph"] not in [0, 1, 2] or s["off"] not in [0, 1] or s["ms"] not in [0, 1, 2, 3]:
 		return false
-	if not _finite_number(s.get("los")) or not (s.get("fpt") is bool):
+	var pass_flags = s.get("pf")
+	if not _finite_number(s.get("los")) or not (pass_flags is int):
+		return false
+	if pass_flags & ~(PASS_THROWN_FLAG | CROSSED_LOS_FLAG):
 		return false
 	if not _float_fields(s.get("a"), athletes * 7) or not _float_fields(s.get("b"), 8):
 		return false
@@ -125,7 +131,9 @@ static func apply_snapshot(m, s: Dictionary) -> void:
 	w.phase = s["ph"]
 	w.offense_team = s["off"]
 	w.los_y = s["los"]
-	w.forward_pass_thrown = s["fpt"]
+	var pass_flags: int = s["pf"]
+	w.forward_pass_thrown = (pass_flags & PASS_THROWN_FLAG) != 0
+	w.ball_crossed_los = (pass_flags & CROSSED_LOS_FLAG) != 0
 	w.last_possession = s.get("pt", w.offense_team)
 	var a: PackedFloat32Array = s["a"]
 	var r: PackedInt32Array = s["r"]
@@ -339,7 +347,7 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 ## Wire/sim compatibility version. Bump it in the same PR as any change to the wire format
 ## (message keys or fields, snapshot layout, action shapes) or to sim rules a host and client
 ## must agree on (src/sim). Rule and reasons: docs/design/netcode.md "Version handshake".
-const VERSION := 7
+const VERSION := 8
 const VERSION_FILE := "res://VERSION"
 const VERSION_FLAG := "--protocol-version="   # debug: pretend to be another version (net_test.sh)
 

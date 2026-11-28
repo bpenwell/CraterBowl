@@ -73,8 +73,9 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
   - Only the throw moment counts. A lineman who releases downfield after the ball is out is legal; one who crossed
     before it is not.
   - A pass landing at or behind the line (a screen) is exempt.
-  - The zone lifts once the ball has been carried past the line (a run). A handoff behind the line doesn't lift it, so a
-    halfback pass with a lineman downfield is still a foul. Kick plays, Chaosball and free practice have no zone.
+  - The zone lifts once the ball has been carried past the line (a run). This also ends
+    [passing eligibility](offense.md#passing) for the down (#312). A handoff behind the line keeps the zone active,
+    so a halfback pass with a lineman downfield is still a foul. Kick plays, Chaosball and free practice have no zone.
   - Bot linemen respect the zone ([line-play.md](line-play.md#blocking-zone-253)).
 - Offsides and false starts stay impossible by construction (the pre-snap neutral-zone clamp); that's the documented
   default on #7.
@@ -216,7 +217,6 @@ Chaosball changes most of this: see [chaosball.md](chaosball.md).
 - #91 Spike and kneel clock actions
 - #7 C05 Competitive rules: eligibility, grounding, blocking zone, QB slowdown
 - #253 Blocking zone and penalty flags (in review)
-- #312 A carrier who crossed the line can retreat and still throw a forward pass
 - #254 Intentional grounding under pressure
 - #8 C06 Spotting: forward progress, return yards, fumble variety (#103 out-of-bounds forward progress in review)
 - #16 B10 Overtime for tied games
