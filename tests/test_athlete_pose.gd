@@ -338,6 +338,24 @@ func _chest_off_ball(sk: Skeleton3D, ball: Vector3) -> float:
 	var to := ball - s2
 	return rad_to_deg((front - spine * front.dot(spine)).angle_to(to - spine * to.dot(spine)))
 
+## #455: the Moon Hop clip never holds the arms straight out (the Jump loop it replaced did).
+func test_moon_hop_arms_stay_in() -> void:
+	var v = _view(Athlete.Role.WR)
+	var sk := _skel(v)
+	var widest := {}
+	for clip_name in [PlayerNode.HOP_CLIP, "Jump"]:
+		var clip: Animation = v.anim.get_animation(clip_name)
+		widest[clip_name] = 0.0
+		for i in 12:
+			_pose(sk, clip, clip.length * i / 12.0)
+			# Both hands far out to the sides at once: the nearer one's sideways distance from the chest.
+			var x: float = _bone_pos(sk, "spine_03").x
+			var out := minf(absf(_bone_pos(sk, "hand_l").x - x), absf(_bone_pos(sk, "hand_r").x - x))
+			widest[clip_name] = maxf(widest[clip_name], out)
+	assert_true(widest["Jump"] > 0.5, "the old Jump loop does hold both out (%.2f m)" % widest["Jump"])
+	assert_true(widest[PlayerNode.HOP_CLIP] < 0.4, "the hop never holds both out: at most %.2f m" % widest[PlayerNode.HOP_CLIP])
+	v.free()
+
 func test_reach_never_stretches_the_arm() -> void:
 	var v = _view(Athlete.Role.WR)
 	var sk := _skel(v)
