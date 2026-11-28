@@ -178,10 +178,11 @@ static func _upright(chest: Transform3D) -> Transform3D:
 
 ## The reach frame: _upright standing; diving, the athlete's heading (skeleton +Z), since a
 ## lying chest's own heading is anywhere (a slide's chest faces the sky).
+## Blended as an angle, so a half-dived frame never collapses.
 func _catch_frame(chest: Transform3D) -> Transform3D:
-	var z := Vector3(chest.basis.z.x, 0.0, chest.basis.z.z)
-	z = z.normalized().lerp(Vector3.BACK, catch_dive) if z.length() > 0.1 else Vector3.BACK
-	z = z.normalized() if z.length() > 0.1 else Vector3.BACK
+	var yaw := atan2(chest.basis.z.x, chest.basis.z.z) if Vector2(chest.basis.z.x, chest.basis.z.z).length() > 1e-4 else 0.0
+	yaw = lerp_angle(yaw, 0.0, catch_dive)
+	var z := Vector3(sin(yaw), 0.0, cos(yaw))
 	return Transform3D(Basis(Vector3.UP.cross(z), Vector3.UP, z), chest.origin)
 
 ## A bone's skeleton-space pose with this update's twist applied (see _pre).

@@ -1,12 +1,15 @@
 extends "res://tests/visual/harness.gd"
 ## #360: a diving receiver reaches for the ball where it is. The near arm points at the
-## ball and the chest rolls toward it, for a pass to the left, to the right and high.
+## ball and the chest rolls toward it, for a pass to the left, to the right and high, live
+## and in a replay.
 
 const CASES := [
 	# name, ball offset from the receiver (field x, y, height), near hand
 	["dive-reach-left", Vector3(-0.8, 0.9, 0.6), "hand_l"],
 	["dive-reach-right", Vector3(0.8, 0.9, 0.6), "hand_r"],
 	["dive-reach-high", Vector3(0.0, 0.8, 1.5), "hand_r"],
+	# A replay drives the view from the recorded dive and catch bits (#393), not the live sim.
+	["dive-reach-replay", Vector3(0.8, 0.9, 0.6), "hand_r"],
 ]
 
 func _initialize() -> void:
@@ -52,6 +55,9 @@ func _run() -> void:
 		game._render()
 		for view in game.views:
 			view.interpolate(1.0)
+		if c[0] == "dive-reach-replay":   # after _render: sync() clears the replay bits
+			receiver.dive_t = 0.0
+			player.replay_flags = game.Replay.F_DIVING | game.Replay.F_CATCH
 		game.camera.global_position = player.global_position + Vector3(3.5, 1.9, -2.3)
 		game.camera.look_at(player.global_position + Vector3(0, 0.6, -0.4))
 		player.anim.play()

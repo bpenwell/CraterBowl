@@ -271,7 +271,7 @@ func test_diving_reach_turns_the_chest_toward_the_ball() -> void:
 		var hand_before := _bone_pos(sk, c[2]).distance_to(ball)
 		_dive_catch(v, sk, ball, 1.0)
 		var after := _chest_off_ball(sk, ball)
-		assert_true(after < before - 15.0 or after < 5.0, "%s ball: chest turns toward it (%.0f -> %.0f deg off)" % [c[0], before, after])
+		assert_true(before > 5.0 and after < before * 0.5, "%s ball: chest turns toward it (%.0f -> %.0f deg off)" % [c[0], before, after])
 		assert_true(_bone_pos(sk, c[2]).distance_to(ball) < minf(hand_before - 0.1, 0.3), "%s ball: near hand reaches it" % c[0])
 		assert_true(sk.get_bone_pose_rotation(sk.find_bone("thigh_r")).is_equal_approx(legs[0]) 			and sk.get_bone_pose_rotation(sk.find_bone("thigh_l")).is_equal_approx(legs[1]), "%s ball: legs follow the dive clip" % c[0])
 	v.free()
@@ -303,19 +303,23 @@ func test_diving_twist_stays_within_limits_for_every_ball_direction() -> void:
 	assert_true(worst_stretch < 0.005, "arm never stretched: worst %.3f m over" % worst_stretch)
 	v.free()
 
-## catch_dive blends the standing twist into the diving one: half way turns the chest part way.
+## catch_dive blends the standing twist into the diving one: the chest moves steadily away
+## from the standing pose as catch_dive goes 0 to 1.
 func test_dive_blend_is_continuous() -> void:
 	var v = _view(Athlete.Role.WR)
 	var sk := _skel(v)
 	var clip: Animation = v.anim.get_animation("u2/Slide_Start")
+	var standing := Quaternion.IDENTITY
 	var turns := []
-	for d in [0.0, 0.5, 1.0]:
+	for d in [0.0, 0.25, 0.5, 0.75, 1.0]:
 		_pose(sk, clip, 0.26)
-		var q0 := sk.get_bone_global_pose(sk.find_bone("spine_03")).basis.get_rotation_quaternion()
 		_dive_catch(v, sk, _bone_pos(sk, "spine_03") + Vector3(0.55, 0.1, 0.45), d)
-		turns.append(sk.get_bone_global_pose(sk.find_bone("spine_03")).basis.get_rotation_quaternion())
-		turns[-1] = rad_to_deg(q0.angle_to(turns[-1]))
-	assert_true(turns[1] > minf(turns[0], turns[2]) - 1.0 and turns[1] < maxf(turns[0], turns[2]) + 1.0, 		"half blend sits between standing and diving: %s" % str(turns))
+		var q := sk.get_bone_global_pose(sk.find_bone("spine_03")).basis.get_rotation_quaternion()
+		if d == 0.0:
+			standing = q
+		turns.append(rad_to_deg(standing.angle_to(q)))
+	for i in 4:
+		assert_true(turns[i + 1] > turns[i] + 1.0, "each quarter of the blend turns the chest further: %s" % str(turns))
 	v.free()
 
 func _dive_catch(v, sk: Skeleton3D, ball: Vector3, dive: float) -> void:

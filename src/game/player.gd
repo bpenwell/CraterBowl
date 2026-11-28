@@ -636,7 +636,7 @@ static func replay_bits(world) -> PackedByteArray:
 		var bits := 0
 		if a.engaged_with >= 0 and a.velocity.length() < PUSH_MAX_SPEED:
 			bits = Replay.F_PUSH
-		elif flying:
+		elif flying and not a.is_grounded() and not (a.is_diving() and (world.is_chaos() or world.kicked)):   # as live (_update_look)
 			var r := int(a.role)
 			var chest := Vector3(a.position.x, a.position.y, CATCH_HEIGHT)
 			if a.position.distance_to(cp) < CATCH_RANGE and chest.distance_to(b.position) < CATCH_LEAD * b.velocity.length() \
