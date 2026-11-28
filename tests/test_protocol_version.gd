@@ -109,3 +109,55 @@ func test_matchmaker_refuses_mismatched_enqueue() -> void:
 	assert_eq(mm.mm.queue.size(), 1, "matching player queued")
 	assert_eq(mm.sent.back()[1].get("k"), "queued")
 	mm.free()
+
+## #224: the client checks the host's version off `welcome` (a pre-#165 host never checks ours).
+func _client(version: int) -> NetSession:
+	var client := NetSession.new()
+	client.mode = NetSession.Mode.CLIENT
+	client.protocol_version = version
+	client.peer = ENetMultiplayerPeer.new()
+	return client
+
+func test_host_welcome_carries_version() -> void:
+	var host := _host(5)
+	host._on_peer_connected(2)
+	host._on_packet(2, var_to_bytes(P.hello(5)))
+	assert_eq(_sent(host, "welcome")[0][1].get("v"), 5, "welcome announces the host's version")
+	host.free()
+
+func test_client_seated_by_matching_welcome() -> void:
+	var client := _client(5)
+	client._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "classic", "v": 5}))
+	assert_eq(client.my_athlete, 2, "matching welcome seats the client")
+	assert_eq(client.refused_reason, "", "and doesn't refuse")
+	client.free()
+
+func test_client_refuses_welcome_without_version() -> void:
+	var client := _client(5)
+	var reasons: Array = []
+	client.refused.connect(func(r): reasons.append(r))
+	client._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "classic"}))
+	assert_eq(client.my_athlete, -1, "pre-#165 host's welcome doesn't seat the client")
+	assert_eq(client.refused_reason, "This server runs an older Crater Bowl (server is an older build, you have v5)")
+	assert_true(client.version_refused, "counts as a version refusal (no capacity hint)")
+	assert_eq(reasons, [client.refused_reason], "refused signal fires like a host refusal")
+	client._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "classic", "v": 5}))
+	assert_eq(client.my_athlete, -1, "nothing after the refusal is accepted")
+	client.free()
+
+func test_client_refuses_welcome_with_other_version() -> void:
+	var older := _client(5)
+	older._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "classic", "v": 4}))
+	assert_eq(older.my_athlete, -1, "older host doesn't seat the client")
+	assert_eq(older.refused_reason, "This server runs an older Crater Bowl (server is v4, you have v5)")
+	var newer := _client(5)
+	newer._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "classic", "v": 6}))
+	assert_eq(newer.my_athlete, -1, "newer host doesn't seat the client")
+	assert_eq(newer.refused_reason, "Update Crater Bowl to play online (server is v6, you have v5)")
+	var odd := _client(5)
+	odd._on_packet(1, var_to_bytes({"k": "welcome", "aid": 2, "size": 3, "mode": "classic", "v": "5"}))
+	assert_eq(odd.my_athlete, -1, "a non-int version is never compatible")
+	assert_true(older.version_refused and newer.version_refused and odd.version_refused, "all version refusals")
+	older.free()
+	newer.free()
+	odd.free()

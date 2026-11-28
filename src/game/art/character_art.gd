@@ -56,6 +56,8 @@ static func find_anim(n: Node) -> AnimationPlayer:
 static func dress_mesh(mi: MeshInstance3D) -> void:
 	if mi == null:
 		return
+	# Hit_Knockback moves the rig beyond its imported rest-pose bounds.
+	mi.extra_cull_margin = 1.5
 	if _mat == null:
 		_mat = ShaderMaterial.new()
 		_mat.shader = load(SHADER)

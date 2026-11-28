@@ -12,7 +12,7 @@ const HELMET_GLB := "res://assets/characters/InnersceneHelmet.glb"
 ## Every clip player.gd plays (run, dive, down, hit, throw, line play, celebrations), plus taunts.
 const CLIPS := ["Idle", "Jog_Fwd", "Sprint", "Crouch_Idle", "Push", "u2/Idle_Shield",
 	"u2/Slide_Start", "u2/Slide", "u2/LayToIdle", "u2/Hit_Knockback", "u2/OverhandThrow",
-	"Dance", "Jump", "Roll"]
+	"Dance", "Jump", "Roll", "Jump_Start", "Jump_Land"]
 const SAMPLES := [0.0, 0.33, 0.67]   # fraction of each clip's length
 ## Helmet inside to the top of the skull: resting on the head, not perched above it.
 const MAX_CROWN_GAP := 0.012

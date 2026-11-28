@@ -44,7 +44,8 @@ can't move at all before the snap. Tackling is in
     Cover 2 in 3v3/5v5 uses the safety plus the right-side CB (both CBs with no safety). Deep Zone also sends CBs deep.
   - Goal-line shell: every zone at `DEFENSE_GOAL_DEPTH` (4 yd). Prevent shell: deep at `DEFENSE_PREVENT_DEPTH` (25), others 18.
 - **Ball in the air:** the two nearest defenders break to the landing point; other zone players hold their spots; man
-  defenders play the receiver's hands without sprinting.
+  defenders play the receiver's hands without sprinting. At a longer contested catch, a defender who lines up
+  squarely with the ball can intercept by winning the closest-contact margin. See [catching](offense.md#catching).
 
 ### Pre-snap stance and roam
 - Everyone lines up set (`set_lock`), both teams. A locked athlete can turn to face but not move.
@@ -56,7 +57,14 @@ can't move at all before the snap. Tackling is in
   into the same single `snap` action as before, which the host routes to `World.break_stance`. The protocol is
   unchanged. `World.can_break_stance` is the one predicate for both.
 - A set LB/CB/S holds the shield stance; once roaming he stands in a plain idle, so roamers read differently from set teammates.
-- HUD: `PRE-SNAP: SET`, then `PRE-SNAP: ROAMING`; DL see `PRE-SNAP (hold your stance)`.
+- **Roam hint (#183):** until you have roamed once this session, a set LB/CB/S sees `PRE-SNAP: SET  ·  SPACE ×2 TO ROAM`
+  in the status pill (the key is your bound snap key, `Controls.key_name`, so a rebind shows). After your first double-tap
+  roam the pill stays empty on later plays. The flag is a `static var` in `main.gd`: per session, it survives the
+  scene reload between matches and resets on relaunch. Not saved in settings: one reminder per launch is cheap, and a
+  settings key would add schema and save paths for a one-line hint. Pads still see the keyboard key (#309).
+- Text HUD (`presnap_defense_prompt`): `PRE-SNAP: SET` (plus the hint above), then `PRE-SNAP: ROAMING`; DL see
+  `PRE-SNAP (hold your stance)`. That debug text HUD is hidden in a match (overlay shows it only in the lobby and
+  final), so the steady-state SET/ROAMING text isn't on screen; the pose is the cue (#307).
 - Neutral zone: offense stops `NEUTRAL_ZONE_HALF` (0.5 yd) short of the LOS, defense 0.5 yd past it. The same clamp
   runs in client prediction, so there is no rubber-banding.
 - A translucent hex barrier (`BARRIER_HEIGHT` 2.4 m) stands at the LOS. It brightens near athletes within
@@ -105,4 +113,5 @@ can't move at all before the snap. Tackling is in
 
 ## Open issues
 - #35 B02 DB press / jam mechanic
-- #183 HUD hint for the Space double-tap
+- #307 visible SET / ROAMING cue in the overlay
+- #309 pad button names in key hints

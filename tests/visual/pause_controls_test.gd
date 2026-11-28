@@ -35,7 +35,7 @@ func _run() -> void:
 	var want := {"Dash": ["R"], "Timeout": ["T"], "Taunt": ["C"], "Next play": ["ENTER"], "Spin": ["Q", "E"],
 		"Dive / tackle": ["F"], "Handoff": ["G"], "Move": ["W", "A", "S", "D"], "Sprint": ["SHIFT"],
 		"Snap": ["SPACE"], "Scoreboard": ["TAB"], "Replay": ["V"],
-		"Throw": ["L-CLICK", "J"], "Block": ["R-CLICK"], "Aim / look": ["MOUSE"]}
+		"Throw": ["L-CLICK", "J"], "Block": ["R-CLICK"], "Aim / look": ["MOUSE"], "Jump": ["SPACE"], "Zoom": ["WHEEL"]}
 	for label in want:
 		check(shown.get(label, []) == want[label], "%s shows %s (%s)" % [label, want[label], shown.get(label, "missing")])
 	for label in shown:

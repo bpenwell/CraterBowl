@@ -4,6 +4,8 @@ extends "res://tests/test_case.gd"
 
 const RC := preload("res://src/game/render_cache.gd")
 const PlayerNode := preload("res://src/game/player.gd")
+const CharacterArt := preload("res://src/game/art/character_art.gd")
+const Uniforms := preload("res://src/game/art/football_uniforms.gd")
 
 func test_cache_shares_meshes_and_materials() -> void:
 	assert_true(RC.sphere(0.3) == RC.sphere(0.3), "same sphere key -> same mesh")
@@ -16,6 +18,16 @@ func test_cached_primitives_are_low_poly() -> void:
 	assert_true(RC.triangles(RC.sphere(0.28, 0.5)) <= 200, "sphere tris %d" % RC.triangles(RC.sphere(0.28, 0.5)))
 	assert_true(RC.triangles(RC.capsule(0.4, 1.9)) <= 250, "capsule tris %d" % RC.triangles(RC.capsule(0.4, 1.9)))
 	assert_true(RC.triangles(RC.torus(0.6, 0.8)) <= 300, "torus tris %d" % RC.triangles(RC.torus(0.6, 0.8)))
+
+func test_skinned_uniforms_share_animation_cull_margin() -> void:
+	var model := CharacterArt.instance()
+	var local_mesh := CharacterArt.find_mesh(model)
+	CharacterArt.dress_mesh(local_mesh)
+	var opponent_mesh := Uniforms.opponent_mesh(local_mesh)
+	assert_true(local_mesh.extra_cull_margin > 0.0, "animated home body expands its rest bounds")
+	assert_eq(opponent_mesh.extra_cull_margin, local_mesh.extra_cull_margin,
+		"both uniforms on the shared rig use the animation margin")
+	model.free()
 
 func test_view_interpolates_between_ticks() -> void:
 	var v := PlayerNode.new()

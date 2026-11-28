@@ -8,18 +8,31 @@ const Mats := preload("res://src/game/art/materials.gd")
 const UITheme := preload("res://src/ui/ui_theme.gd")
 const T := preload("res://src/sim/tuning.gd")
 const Routes := preload("res://src/sim/routes.gd")
+const World := preload("res://src/sim/world.gd")
 const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
+const Penalties := preload("res://src/sim/penalties.gd")
 ## Picker buttons, built once (#169): the longest list either side shows. Offense with a run
 ## back: passes + runs + Repeat last/Flip play; defense: calls + Repeat last.
 var PICKER_POOL := maxi(Routes.PLAY_NAMES.size() + Routes.RUN_NAMES.size() + 2, DefensivePlaybook.CALLS.size() + 1)
-const TEAM_NAMES := ["HELIOS", "NEBULA"]
-const TEAM_ABBR := ["HEL", "NEB"]
+const Teams := preload("res://src/sim/teams.gd")
+const TeamLogos := preload("res://src/game/art/team_logos.gd")
+## The two teams on the bug (#233): team 0 = HELIOS, team 1 = NEBULA until the team picker
+## (#234) calls set_teams(). Names/codes come from src/sim/teams.gd, not literals.
+var team_ids: Array = Teams.DEFAULT_IDS.duplicate()
+var TEAM_NAMES: Array = [Teams.default_team(0)["name"], Teams.default_team(1)["name"]]
+var TEAM_ABBR: Array = [Teams.default_team(0)["code"], Teams.default_team(1)["code"]]
+var team_logo: Array[TextureRect] = []    # scorebug logo per team
+var board_logo: Array[TextureRect] = []   # hold-Tab scoreboard logo per team
+var _abbr_l: Array[Label] = []
+## Logo sizes: the bug's team row is 34 px tall; the Tab board is a big centered card.
+const BUG_LOGO := 34.0
+const BOARD_LOGO := 88.0
 const NAVY := Color(0.055, 0.078, 0.14, 0.9)
 const ACCENT := Color(0.36, 0.88, 1.0)
 const ALERT := Color(1.0, 0.42, 0.12)
 ## Fixed scorebug width (#116): reserving the play-clock cell keeps the bug from jumping
 ## and re-centering at the snap and the whistle. Content wider than this still grows it.
-const BUG_W := 660.0   # fits every state in Teko (#125 Slice A; was 600 with Rajdhani)
+const BUG_W := 744.0   # fits every state in Teko (#125 Slice A; was 600 with Rajdhani), +2 × (34 px logo + 8 px gap) for the team logos (#233)
 ## Bottom HUD stack (#116): scorebug flush to the bottom, the movement meters beside it and
 ## the status pill on its top-left edge, so nothing floats over the controlled player.
 const BUG_BOTTOM := 14.0
@@ -37,6 +50,10 @@ var play_clock_l: Label
 var play_clock_div: ColorRect
 var status_l: Label
 var status_pill: PanelContainer
+## #253: penalty line, from the flag until the next snap (above the status pill, right-aligned).
+const FLAG_YELLOW := Color(1.0, 0.84, 0.12)
+var flag_pill: PanelContainer
+var flag_l: Label
 var mode_l: Label
 var spot_l: Label
 var field_strip: Control
@@ -46,6 +63,7 @@ var picker_title: Label
 var coaching_text: Label
 var picker_grid: GridContainer
 var route_select: OptionButton
+var formation_select: OptionButton
 var picker_side := -1
 var picker_calls: Array = []
 var _picker_main   # set on refresh; pooled buttons call its do_action
@@ -133,11 +151,16 @@ func _build_scorebug() -> void:
 		tab.custom_minimum_size = Vector2(6, 34)
 		cell.add_child(tab)
 		team_tab.append(tab)
+		var logo := TeamLogos.rect(team_ids[t], BUG_LOGO)
+		logo.name = "TeamLogo%d" % t
+		cell.add_child(logo)
+		team_logo.append(logo)
 		var team_label := VBoxContainer.new()
 		team_label.alignment = BoxContainer.ALIGNMENT_CENTER
 		team_label.add_theme_constant_override("separation", 0)
 		var name_l := _label(22, Color(0.92, 0.95, 1.0), 700)
 		name_l.text = TEAM_ABBR[t]
+		_abbr_l.append(name_l)
 		team_label.add_child(name_l)
 		var pips := _label(11, Color(0.85, 0.92, 1.0), 700)
 		timeout_pips.append(pips)
@@ -201,6 +224,18 @@ func _build_scorebug() -> void:
 	root.add_child(status_pill)
 	status_l = _label(17, Color(0.95, 0.97, 1.0), 700)
 	status_pill.add_child(status_l)
+	flag_pill = PanelContainer.new()
+	flag_pill.name = "FlagPill"
+	var fs := _box(FLAG_YELLOW, 6, Color(0.03, 0.04, 0.1, 0.6), 1)
+	fs.content_margin_top = 2
+	fs.content_margin_bottom = 2
+	flag_pill.add_theme_stylebox_override("panel", fs)
+	flag_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flag_pill.visible = false
+	root.add_child(flag_pill)
+	flag_l = _label(18, Color(0.06, 0.06, 0.1), 800)
+	flag_l.label_settings.shadow_size = 0
+	flag_pill.add_child(flag_l)
 
 func _divider() -> ColorRect:
 	var d := ColorRect.new()
@@ -232,6 +267,15 @@ func _build_picker() -> void:
 	column.add_child(picker_title)
 	coaching_text = _label(16)
 	column.add_child(coaching_text)
+	formation_select = OptionButton.new()
+	formation_select.focus_mode = Control.FOCUS_NONE
+	for formation in World.FORMATION_NAMES:
+		formation_select.add_item("Formation · " + formation)
+	formation_select.item_selected.connect(func(index: int):
+		if _picker_main != null:
+			_picker_main.do_action({"a": "formation", "f": index}))
+	formation_select.hide()
+	column.add_child(formation_select)
 	picker_grid = GridContainer.new()
 	picker_grid.columns = 2
 	picker_grid.add_theme_constant_override("h_separation", 6)
@@ -323,11 +367,39 @@ func _build_scoreboard() -> void:
 	scoreboard.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	scoreboard.grow_vertical = Control.GROW_DIRECTION_BOTH
 	root.add_child(scoreboard)
+	# Logos flank the text (#233): team 0's on the left, beside its name and score.
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 18)
+	scoreboard.add_child(row)
 	scoreboard_label = _label(23)
 	scoreboard_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	scoreboard_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	scoreboard_label.custom_minimum_size = Vector2(440, 0)
-	scoreboard.add_child(scoreboard_label)
+	for t in 2:
+		var logo := TeamLogos.rect(team_ids[t], BOARD_LOGO)
+		logo.name = "BoardLogo%d" % t
+		board_logo.append(logo)
+	row.add_child(board_logo[0])
+	row.add_child(scoreboard_label)
+	row.add_child(board_logo[1])
 	scoreboard.hide()
+
+## Show teams `ids` (two Teams ids) on the scorebug and Tab board. The team picker (#234)
+## calls this; until then every match is the default HELIOS vs NEBULA. Unknown ids keep the
+## side's current team.
+func set_teams(ids: Array) -> void:
+	for t in 2:
+		var team := Teams.team(str(ids[t])) if t < ids.size() else {}
+		if team.is_empty():
+			continue
+		team_ids[t] = team["id"]
+		TEAM_NAMES[t] = team["name"]
+		TEAM_ABBR[t] = team["code"]
+		if t < _abbr_l.size():
+			_abbr_l[t].text = team["code"]
+			team_logo[t].texture = TeamLogos.logo(team["id"])
+			board_logo[t].texture = TeamLogos.logo(team["id"])
 
 func _build_banner() -> void:
 	banner = _label(84, Color.WHITE, 800)
@@ -370,7 +442,7 @@ func on_event(n: String, d: Dictionary) -> void:
 			show_banner("TOUCHDOWN", TEAM_NAMES[t] if t >= 0 and t < 2 else "", Color(1.0, 0.86, 0.3), 3.0)
 		"interception": show_banner("INTERCEPTION", "", ALERT)
 		"fumble": show_banner("FUMBLE", "", ALERT)
-		"tackle":
+		"tackle", "out_of_bounds":
 			var credit := float(d.get("progress", 0.0))
 			if credit >= T.FORWARD_PROGRESS_BANNER:
 				show_banner("FORWARD PROGRESS", "+%d YD" % maxi(1, roundi(credit)), ACCENT, 1.6)
@@ -383,7 +455,17 @@ func on_event(n: String, d: Dictionary) -> void:
 		"snap":
 			if banner.text in ["TIMEOUT", "ONE-MINUTE WARNING"]:
 				banner_t = 0.0
+			flag_pill.visible = false
+		"flag":
+			show_banner("FLAG", Penalties.name_of(d), FLAG_YELLOW, 1.8)
+			_show_flag(Penalties.ruling(d))
+		"penalty":
+			_show_flag(str(d.get("ruling", "")))
 	_track_play(n, d)
+
+func _show_flag(text: String) -> void:
+	flag_l.text = text
+	flag_pill.visible = text != ""
 
 ## Remember what the current play did, for the dead-ball summary.
 func _track_play(n: String, d: Dictionary) -> void:
@@ -587,12 +669,14 @@ func _status_text(main) -> String:
 				var won: bool = s.toss_winner == w.get_athlete(main.my_id).team
 				return "YOU WON THE TOSS" if won else "%s IS CHOOSING" % TEAM_NAMES[clampi(s.toss_winner, 0, 1)]
 			# #131: the kicker keeps the J / click hint (the only place a new player learns to
-			# kick) until the kick meter (#68) carries it; the return team gets no narration.
+			# kick; #68's meter shows power, not the key); the return team gets no narration.
 			if w.kick_play == "kickoff":
 				return "PRESS J OR CLICK TO KICK" if mine else ""
 			if w.kick_play != "" and mine:
 				return ("PUNT" if w.kick_play == "punt" else "FIELD GOAL") + "  ·  PRESS K TO CHANGE"
-			return ""
+			# #183: a set defender is told how to roam until they've done it once this session.
+			var roam_key: String = main.roam_hint_key()
+			return "" if roam_key == "" else main.presnap_defense_prompt(w.get_athlete(main.my_id), roam_key)
 		1:
 			if main.world.is_chaos():
 				return "PASS CLOCK %.1f" % maxf(0.0, main.T.PASS_CLOCK - w.hold_t)
@@ -621,11 +705,18 @@ func _refresh_picker(main, final: bool) -> void:
 		picker_title.text = card[0]
 		coaching_text.text = card[1]
 		route_select.hide()
+		formation_select.hide()
 		return
 	picker.visible = not final and w.phase == w.Phase.PRESNAP and w.kick_play != "kickoff" and main.play_picker_open and not main.scoreboard_held and not main.replay_active
 	if not picker.visible:
 		return
-	var side := 0 if w.get_athlete(main.my_id).team == w.offense_team else 1
+	var athlete = w.get_athlete(main.my_id)
+	formation_select.visible = w.can_choose_formation(athlete)
+	if formation_select.visible:
+		var formation: int = w.offensive_formation()
+		if formation_select.selected != formation:
+			formation_select.select(formation)
+	var side := 0 if athlete.team == w.offense_team else 1
 	var offense := side == 0
 	var calls: Array = w.available_plays() if offense else w.DefensivePlaybook.CALLS.keys()
 	_picker_main = main
@@ -719,3 +810,7 @@ func _layout_stack() -> void:
 	var pm := status_pill.get_combined_minimum_size()
 	status_pill.size = pm
 	status_pill.position = Vector2(bug_left, bug_top - 4.0 - pm.y)
+	if flag_pill.visible:
+		var fm := flag_pill.get_combined_minimum_size()
+		flag_pill.size = fm
+		flag_pill.position = Vector2(bug_left + br.size.x - fm.x, bug_top - 4.0 - pm.y - 6.0 - fm.y)

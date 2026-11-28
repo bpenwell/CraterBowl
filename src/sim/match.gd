@@ -4,6 +4,7 @@ extends RefCounted
 const World := preload("res://src/sim/world.gd")
 const Downs := preload("res://src/sim/downs.gd")
 const Clock := preload("res://src/sim/clock.gd")
+const Penalties := preload("res://src/sim/penalties.gd")
 
 const T := preload("res://src/sim/tuning.gd")
 
@@ -327,10 +328,18 @@ func next_play() -> Dictionary:
 	var off := downs.offense_team
 	var def := 1 - off
 	var r_team: int = r.get("team", off)
+	# #253: a flag from this down. The defense keeps a better result, else it is enforced.
+	var flag: Dictionary = {} if world.flags.is_empty() or world.is_chaos() else world.flags[0]
+	world.flags = []
+	var enforce_flag := not flag.is_empty() and not Penalties.defense_declines(r, downs, state == State.TRY, flag)
+	if not flag.is_empty() and not enforce_flag:
+		match_event.emit("penalty", {"penalty": flag, "declined": true, "ruling": Penalties.ruling(flag, {"declined": true})})
 	var kick_out := {}
-	if world.kicked and not world.is_chaos() and state != State.TRY and r["type"] != "touchdown":
+	if not enforce_flag and world.kicked and not world.is_chaos() and state != State.TRY and r["type"] != "touchdown":
 		kick_out = _kick_next(r, off)
-	if world.is_chaos():
+	if enforce_flag:
+		last_outcome = _enforce_penalty(flag)
+	elif world.is_chaos():
 		last_outcome = _chaos_next(r, r_team, off)
 	elif state == State.TRY:
 		if (r["type"] == "touchdown" and r_team == off) or (r["type"] == "field_goal" and r["good"]):
@@ -374,6 +383,21 @@ func next_play() -> Dictionary:
 		return last_outcome
 	_line_up_next_play()
 	return last_outcome
+
+## #253: walk off an accepted flag (Penalties.enforce is the one path) and tell the HUD.
+func _enforce_penalty(flag: Dictionary) -> Dictionary:
+	var res := Penalties.enforce(downs, flag)
+	res["try"] = state == State.TRY
+	clock.running_between_plays = false
+	var ruling := Penalties.ruling(flag, res)
+	match_event.emit("penalty", {"penalty": flag, "declined": false, "result": res, "ruling": ruling})
+	var outcome := "replay_down"
+	if res["turnover_on_downs"]:
+		outcome = "turnover_on_downs"
+	elif flag.get("loss_of_down", false) and state != State.TRY:
+		outcome = "next_down"
+	return {"outcome": outcome, "los": downs.los, "down": downs.down, "offense": downs.offense_team,
+		"penalty": flag, "ruling": ruling}
 
 ## Returns true when there is no next play.
 func _advance_expired_period() -> bool:

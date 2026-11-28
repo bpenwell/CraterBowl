@@ -105,10 +105,12 @@ func _try_form(mode: String, size: int, now: float, game: String = "classic") ->
 	if count < full and not (waited >= wait_needed and count >= 2):
 		return {}
 	var ids := []
+	var entries := []   # the queue entries, so a failed host's match can re-queue them (#303)
 	var host := -1
 	for u in picked:
 		for m in u["members"]:
 			ids.append(m["id"])
+			entries.append(m)
 	host = oldest["members"][0]["id"]
 	var teams := unit_teams(picked, size)
 	# team_seats: seat token -> team (what the host seats by). team_names: name -> team, kept for
@@ -126,7 +128,25 @@ func _try_form(mode: String, size: int, now: float, game: String = "classic") ->
 	for n in dup_names:
 		team_names.erase(n)
 	return {"mode": mode, "size": size, "game": game, "players": ids, "host": host, "teams": teams,
-		"team_names": team_names, "team_seats": team_seats}
+		"team_names": team_names, "team_seats": team_seats, "entries": entries}
+
+## #303: put players from a match that fell through back in the queue. They keep their original
+## `since`, so they are the oldest in their group and the next tick re-forms them first (a casual
+## group already past CASUAL_WAIT matches at once). A party that lost members (the failed host was
+## one of them) shrinks to who came back; a lone survivor queues solo.
+func requeue(entries: Array) -> void:
+	var party_left := {}
+	for e in entries:
+		if e["party"] != "":
+			party_left[e["party"]] = party_left.get(e["party"], 0) + 1
+	for e in entries:
+		var back: Dictionary = e.duplicate()
+		if back["party"] != "":
+			back["party_size"] = party_left[back["party"]]
+			if back["party_size"] < 2:
+				back["party"] = ""
+		dequeue(back["id"])
+		queue.append(back)
 
 ## Host side: the team the matchmaker drafted a player onto, by seat token first, then by
 ## display name for older clients that sent no token. -1 = unknown (auto-assign).

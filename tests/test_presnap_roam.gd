@@ -230,3 +230,17 @@ func test_double_tap_drives_one_break_stance() -> void:
 		assert_true(P.apply_action(m, cb.id, {"a": "snap"}), "host breaks stance")
 	assert_eq(sent, 1, "one action for the double-tap")
 	assert_true(not cb.set_lock and w.phase == World.Phase.PRESNAP, "CB roaming, ball not snapped")
+
+## #183: a set defender's prompt carries the "<key> ×2 TO ROAM" hint only when main
+## passes a key (set, non-DL, not roamed yet); DL, roaming and no-key prompts never do.
+func test_presnap_prompt_roam_hint() -> void:
+	var Main = load("res://src/game/main.gd")
+	var w := _match().world
+	var lb := w.find_role(1, R.LB)
+	assert_eq(Main.presnap_defense_prompt(lb, "SPACE"), "PRE-SNAP: SET  ·  SPACE ×2 TO ROAM", "set LB: hint with the key")
+	assert_eq(Main.presnap_defense_prompt(lb, "B"), "PRE-SNAP: SET  ·  B ×2 TO ROAM", "names whatever key it is given")
+	assert_eq(Main.presnap_defense_prompt(lb), "PRE-SNAP: SET", "no key (already roamed): plain SET")
+	assert_eq(Main.presnap_defense_prompt(w.find_role(1, R.DL), "SPACE"), "PRE-SNAP (hold your stance)", "DL never gets it")
+	w.break_stance(lb.id)
+	assert_eq(Main.presnap_defense_prompt(lb, "SPACE"), "PRE-SNAP: ROAMING", "roaming: no hint")
+	assert_eq(Main.presnap_defense_prompt(null, "SPACE"), "PRE-SNAP", "no athlete")

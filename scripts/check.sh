@@ -5,6 +5,11 @@
 # Never opens a window. See docs/TESTING.md.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+godot_bin="${GODOT:-godot}"
+if ! command -v "$godot_bin" >/dev/null; then
+  echo "CHECK FAIL: setup. Godot executable '$godot_bin' not found. Install Godot or set GODOT to its path." >&2
+  exit 1
+fi
 start=$(date +%s)
 # Isolate user:// (Godot uses $XDG_DATA_HOME on Linux): tests can never touch the player's real
 # saves/settings, and edits the user (or another session) makes mid-run can't fail the guard.
@@ -15,7 +20,9 @@ step() {
   local name=$1; shift
   echo "== $name"
   if "$@" > "${TMPDIR:-/tmp}/fl-check-$$-$name.log" 2>&1; then
-    echo "   ok ($name)"; rm -f "${TMPDIR:-/tmp}/fl-check-$$-$name.log"
+    echo "   ok ($name)"
+    grep -h "SIZE WARN" "${TMPDIR:-/tmp}/fl-check-$$-$name.log" | sed 's/^/   /'   # warnings survive a pass
+    rm -f "${TMPDIR:-/tmp}/fl-check-$$-$name.log"
   else
     tail -25 "${TMPDIR:-/tmp}/fl-check-$$-$name.log"; echo "CHECK FAIL: $name (full log: ${TMPDIR:-/tmp}/fl-check-$$-$name.log)"; exit 1
   fi

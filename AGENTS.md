@@ -41,7 +41,8 @@ or push `main` yourself, and never merge a PR (not even your own, not even when 
 4. **After review:** push fixes to the same branch. If `main` moves, merge it in and re-run check.sh.
 5. **Clean up** once the owner merges: remove your worktree (`git worktree remove ../football-game-<topic>`),
    or run `/football-janitor`, which removes merged, clean and idle worktrees and branches for everyone.
-- `tests/game_flow.gd` steps share one frame timeline: pick an unused window and say which in the PR.
+- New end-to-end flow coverage goes in its own `tests/flow/segments/<name>.gd` (see `tests/flow/segment.gd`),
+  not in `tests/game_flow.gd`'s shared step array. Segments get relative frames, so there's no window to claim.
 
 ### Opening pull requests
 
@@ -90,8 +91,8 @@ Full guide: `docs/TESTING.md`.
 | `./scripts/visual_test.sh` | rendered integration tests in `tests/visual/` (what CI runs). Linux/WSL only | about 2.5 min |
 | `./scripts/before_after.sh menu` (or `shot NAME ...`, `visual CASE`, `potg`) | same capture on `origin/main` and your tree, side by side: the PR's visual evidence | 1–4 min |
 
-- New player-facing behavior gets a step in `tests/game_flow.gd`, driven through the real input
-  handler (`_key()`). New networked behavior extends `tests/net_client.gd`.
+- New player-facing behavior gets a game_flow segment (`tests/flow/segments/<name>.gd`), driven through the
+  real input handler (`flow._key()`). Run just yours with `-s res://tests/game_flow.gd -- --segment=<name>`. New networked behavior extends `tests/net_client.gd`.
 - A new check must go red when you plant the bug it's meant to catch. Try it once.
 - Don't weaken or delete older tests to go green. `check.sh` isolates `user://` (temp
   `XDG_DATA_HOME`), so tests can't touch real saves.
@@ -151,6 +152,30 @@ The game must feel smooth: frame-time **p99** over mean FPS. Rules (details and 
 - Claim a perf win only with before/after numbers: `./scripts/render_bench.sh`
   (`GPU=1` for the real GPU via d3d12), interleaved runs, `uptime` noted. This WSL box is not
   player hardware; feel on real hardware is the user's call (native Windows build).
+
+### Where new code goes (keeping PRs from conflicting)
+
+About one in four "merge main into branch" syncs conflicted, and the conflicts almost always came
+from a few shared spots that every feature extends at the same point: `src/game/main.gd` (the
+key handler, `_process`, the aim arc, route drawing, the var block), `tests/game_flow.gd` (the
+one step array and its var block), the "Code and tests" and "Open issues" tails of
+`docs/features/*.md`, and `src/net/protocol.gd` snapshot/action code. Two PRs that are each
+green can also break `main` together (#205 + #129). CI now runs on `main` after every merge, so
+that kind of break shows up right away.
+
+- **New behavior goes in a new file** that the switchboard calls, not as more lines in it. In the
+  main scene that means a component: extend `src/game/component.gd`, read state through `ctx`
+  (`src/game/game_context.gd`; add a getter there if you need more), override the hooks you
+  need (`on_render`, `on_frame`, `on_configure`, `on_world_event`, `on_match_event`) and register
+  it with one `add_component()` line in `main._ready`. Worked example:
+  `src/game/components/route_art.gd`. Pure math goes in a RefCounted like `camera_zoom.gd`.
+  Don't copy `coin_toss.gd`'s `setup(main)` back-reference.
+- **File-size ratchet** (`scripts/size_check.sh`, run by `lint.sh`). A new `src/**/*.gd` over
+  500 lines fails lint. Files already over that limit have a budget in `scripts/size_budget.txt`,
+  and growing past it prints `SIZE WARN`. Treat the warning as a request to extract. When you
+  shrink a file, lower its budget in the same PR.
+- **Docs:** add your notes inside the section they belong to, not at the end of a shared list.
+  Describe a test in the test file's own `##` header.
 
 ### Documenting your work (updating docs/)
 

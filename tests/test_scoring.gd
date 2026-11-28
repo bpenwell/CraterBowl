@@ -112,3 +112,37 @@ func test_failed_try() -> void:
 	assert_eq(m.score[0], 6, "no try points")
 	assert_eq(out["try"], "no_good")
 	assert_eq(out["receiving"], 1, "kickoff to the other team")
+
+## #103: met at his own 0.8 and driven back through the end zone and out of bounds. Forward
+## progress puts the spot in the field of play, so the next snap is from the 1, not a safety. Stepping out
+## of the end zone untouched is still a safety.
+func _oob_from_end_zone(driven: bool) -> Match:
+	var m := _match(3.0)
+	var w := m.world
+	_snap_and_wait(w)
+	var c = w.carrier()
+	c.position = Vector2(1.2, 0.8)
+	var lb := w.find_role(1, R.LB)
+	var dir := Vector2(-sin(0.5), -cos(0.5))
+	lb.position = c.position - dir * 1.6 if driven else Vector2(40, 40)
+	for i in 180:
+		var inputs := {lb.id: {"dir": dir, "sprint": true}} if driven else {c.id: {"dir": Vector2(-1, -1).normalized()}}
+		w.step(inputs, DT)
+		if w.phase == World.Phase.DEAD:
+			break
+	assert_true(events.has("out_of_bounds"), "out of bounds: %s" % str(events))
+	return m
+
+func test_forward_progress_out_of_end_zone_is_not_a_safety() -> void:
+	var m := _oob_from_end_zone(true)
+	assert_true(m.world.dead_ball_spot.y > 0.0, "spot in the field of play (%.2f)" % m.world.dead_ball_spot.y)
+	var out := m.next_play()
+	assert_eq(m.score[1], 0, "no safety")
+	assert_true(out.get("outcome", "") != "kickoff", "no free kick: %s" % str(out))
+	assert_near(m.world.los_y, 1.0, 0.001, "next snap from the 1 (spot clamped)")
+
+func test_untouched_out_of_end_zone_is_still_a_safety() -> void:
+	var m := _oob_from_end_zone(false)
+	assert_true(m.world.dead_ball_spot.y < 0.0, "went out behind the goal line")
+	m.next_play()
+	assert_eq(m.score[1], 2, "+2 defense")

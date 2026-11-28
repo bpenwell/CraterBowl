@@ -1,0 +1,13 @@
+# Line budgets for the src/**/*.gd files that are already over the 500-line cap.
+# scripts/size_check.sh warns when one grows past its budget and fails any other file over 500.
+# These files are shared switchboards that every feature edits, which is where merge conflicts
+# come from. Put new behavior in a new file and wire it in, don't grow these.
+# When a refactor shrinks a file, lower its budget here (or drop the line once it's under 500).
+src/game/main.gd 1998
+src/sim/world.gd 1411
+src/ui/main_menu.gd 1088
+src/game/overlay.gd 798
+src/game/coin_toss.gd 707
+src/game/player.gd 596
+src/sim/ai.gd 568
+src/sim/drills.gd 502

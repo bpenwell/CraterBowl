@@ -8,7 +8,7 @@ extends RefCounted
 const ACTIONS := [
 	["move_up", "Move up", KEY_W], ["move_down", "Move down", KEY_S],
 	["move_left", "Move left", KEY_A], ["move_right", "Move right", KEY_D],
-	["sprint", "Sprint", KEY_SHIFT], ["snap", "Snap / break stance (defense: double-tap) / fair catch", KEY_SPACE],
+	["sprint", "Sprint", KEY_SHIFT], ["snap", "Snap / break stance (defense: double-tap) / fair catch / jump (live)", KEY_SPACE],
 	["throw", "Throw (QB: hold to charge)", KEY_J], ["lob", "Lob modifier", KEY_CTRL],
 	["tackle", "Dive / tackle (pre-snap: cycle route)", KEY_F],
 	["spin_left", "Spin left (pre-snap: play picker)", KEY_Q], ["spin_right", "Spin right", KEY_E],
@@ -29,6 +29,7 @@ const PAGE_KEYBOARD := [
 		["Spin", ["spin_left", "spin_right"], "Live play: spin left / right, sheds a block"],
 		["Dash", ["dash"], "Burst forward when a move charge is full"],
 		["Dive / tackle", ["tackle"], "Tackle on defense; with the ball, dive for yards"],
+		["Jump", ["snap"], "Live play: jump (uses stamina; more when chained)"],
 	]],
 	["Ball", [
 		["Aim / look", ["@Mouse"], "Passer: look higher to throw higher"],
@@ -43,6 +44,7 @@ const PAGE_KEYBOARD := [
 		["Scoreboard", ["scoreboard"], "Hold to show"],
 		["Replay", ["replay"], "Instant replay; its controls show on screen"],
 		["Next play", ["next"], "After the whistle: skip the wait"],
+		["Zoom", ["@Wheel"], "Camera zoom: up = closer. Middle click resets. Not in QB aim"],
 	]],
 ]
 const PAGE_MORE := [
@@ -65,7 +67,7 @@ const PAGE_MORE := [
 const PAGE_GAMEPAD := [
 	["Move", [
 		["Move", ["@L-Stick"], ""], ["Sprint", ["sprint"], ""], ["Spin", ["spin_left", "spin_right"], ""],
-		["Dash", ["dash"], ""], ["Dive / tackle", ["tackle"], ""],
+		["Dash", ["dash"], ""], ["Dive / tackle", ["tackle"], ""], ["Jump", ["snap"], "Live play"],
 	]],
 	["Ball", [
 		["Aim", ["@R-Stick"], "Passer aim"], ["Snap", ["snap"], ""], ["Throw", ["throw"], ""],

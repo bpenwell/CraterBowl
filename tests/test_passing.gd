@@ -87,6 +87,19 @@ func test_one_forward_pass() -> void:
 	w.ball.hold(qb.id)  # simulate ball coming back
 	assert_true(not w.throw(qb.id, Vector2(26, 30), 0.5), "second forward pass rejected")
 
+func test_in_flight_ground_marker_matches_the_pass_landing() -> void:
+	var w := _world()
+	var qb := w.find_role(0, Athlete.Role.QB)
+	assert_true(w.throw(qb.id, Vector2(40.0, 49.0), 0.8), "real pass released")
+	var at_release := Passing.ground_landing(w.ball.position, w.ball.velocity, w.gravity())
+	_run(w, {}, 0.4)
+	assert_eq(w.ball.state, Ball.State.IN_FLIGHT, "second sample is in flight")
+	var in_flight := Passing.ground_landing(w.ball.position, w.ball.velocity, w.gravity())
+	_run(w, {}, 5.0)
+	var landed := Vector2(w.ball.position.x, w.ball.position.y)
+	assert_true(at_release.distance_to(landed) <= 0.5, "first estimate matches the actual drop")
+	assert_true(in_flight.distance_to(landed) <= 0.5, "in-flight estimate matches the actual drop")
+
 func test_ground_is_incomplete() -> void:
 	events.clear()
 	var w := _world()

@@ -18,6 +18,7 @@ var slant_x := 0.0
 var picked := false
 var xp0 := 0
 var frozen_y := 0.0
+var offline_replay_frames := 0
 var auto_replay_default := false
 var wr_id := -1
 var kick_events: Array = []
@@ -25,8 +26,12 @@ var fc_ret = null   # #189 fair-catch step's returner
 var fp_lb = null          # C06a forward progress: the defender driving the carrier back
 var fp_contact_y := INF
 var fp_driven_y := 0.0
+const ZOOM_SETTINGS := "user://test_flow_settings.cfg"   # #140 zoom step
+var zoom_path0 := ""
+var catch_pose := []   # #246: [catch_weight, catch_reach, hand-to-ball, chest-to-ball] at the A04 catch
 var toss_close_clock := -1.0   # #129: kickoff play clock when the toss cutscene closed
 var bot_snap_clock := INF   # #136: play clock when the bot offense snapped (frames 4171-4481)
+var kick_meter_far := [0, 0]   # #68: [lit steps, shader pushes] with the kickoff aimed deep (frame 9504)
 
 func check(cond: bool, msg: String) -> void:
 	print(("  FLOW OK   " if cond else "  FLOW FAIL ") + msg)
@@ -57,18 +62,27 @@ func _initialize() -> void:
 		[4, func(): main.opening_kickoff = false; main.series.start(0); main.set_controlled(main.my_id)],  # legacy steps start on a scrimmage snap
 		[5, func(): check(main.world.phase == main.World.Phase.PRESNAP, "starts presnap"); _check_team_uniforms("opening lineup")],
 		[6, func(): check(main.world.snap(), "snap")],
+		[39, func(): _check_carry_pose(true, "QB holding before the throw")],   # #244 (frame 39 only)
 		[40, func(): check(main.world.ball.is_held_by(main.controlled_id), "QB has ball")],
 		[41, func(): main.aim_point = Vector2(40, 45)],
 		[80, func(): check(main.arc_shown(), "pass preview shown before input")],
 		[81, func(): _key(KEY_J)],
 		[82, func(): check(main.world.forward_pass_thrown, "pass thrown")],
-		[400, func(): check(main.world.phase == main.World.Phase.DEAD, "incomplete ends play")],
+		[90, func(): _check_ball_flight(true)],   # #159 (frames 90 and 92 only)
+		[92, func(): _check_ball_flight(false)],
+		[396, func(): _drop_dead_ball()],   # #159 (frames 396 and 400 only)
+		[400, func(): check(main.world.phase == main.World.Phase.DEAD, "incomplete ends play"); _check_ball_lying()],
 		# A04: reset, snap, lead a pass to a WR running his go route -> catch while keeping the assigned athlete
 		[401, func(): main.next_play(); check(main.series.downs.down == 2, "incomplete -> 2nd down"); check(main.controlled_id == main.my_id, "control back to my athlete")],
 		[402, func(): main.ai.defense_enabled = false; main.world.snap()],
 		[480, func(): _lead_to_wr(); _key(KEY_J)],
 		[531, func(): check(main.world.forward_pass_thrown, "lead pass thrown")],
-		[800, func(): main.ai.defense_enabled = true; check(caught_by >= 0, "WR caught it"); check(main.controlled_id == main.my_id and main.controlled_id != caught_by, "assigned athlete retained after catch")],
+		[800, func():
+			main.ai.defense_enabled = true
+			check(caught_by >= 0, "WR caught it")
+			check(catch_pose.size() == 4 and catch_pose[0] > 0.8 and catch_pose[1] > 0.8 and catch_pose[2] < catch_pose[3] - 0.3,
+				"receiver reaches for the ball as it arrives (#246): weight/reach/hand-to-ball/chest-to-ball %s" % str(catch_pose))
+			check(main.controlled_id == main.my_id and main.controlled_id != caught_by, "assigned athlete retained after catch")],
 		# A05: idle receiver gets run down by AI pursuit and tackled
 		[1300, func():
 			check(tackled, "AI defender tackled the carrier")
@@ -94,6 +108,7 @@ func _initialize() -> void:
 		[2470, func(): var c = main.world.carrier(); c.position = Vector2(26, 101.0)],
 		[2472, func(): main.next_play(); check(main.series.score[0] == 8, "try good: 8"); check(main.series.state == main.Match.State.KICKOFF and main.world.offense_team == 0 and absf(main.world.los_y - 35.0) < 0.01, "kickoff: home kicks from its 35")],
 		# A09: play clock auto-snap, untimed down, halftime
+		[2474, func(): _check_look_snaps("kickoff reset after the try")],   # #245 (frame 2474 only)
 		[2473, func(): check(main.hud.text.find("Q1 ") >= 0 and main.hud.text.find("H1 ") < 0 and main.hud.text.find("PLAY ") >= 0, "HUD game + play clock"); main.series.clock.play_clock = 0.3],
 		[2500, func(): check(main.world.phase == main.World.Phase.LIVE, "play clock auto-snapped"); main.series.clock.quarter = 2; main.series.clock.remaining = 0.2],
 		[2530, func(): check(main.series.clock.expired(), "clock hit 0:00")],
@@ -164,6 +179,29 @@ func _initialize() -> void:
 		[4607, func(): check(main.player.athlete.move_charge == 1.0, "R consumes one dash charge")],
 		[4625, func(): _key(KEY_E)],
 		[4626, func(): check(main.player.athlete.is_spinning() and main.player.athlete.move_charge < 1.0, "E (spin right) consumes one spin charge")],
+		# #183 (window 4640-4649): a set defender sees "SPACE ×2 TO ROAM" (the bound key) in the
+		# pill and the text HUD until the first double-tap roam; later plays read plain SET.
+		[4640, func(): check(not main.roamed_once, "no roam yet this session"); main.series.start(1, 25.0); main.set_controlled(main.my_id)],
+		[4644, func():
+			var me = main.world.get_athlete(main.my_id)
+			var hint := "PRE-SNAP: SET  ·  SPACE ×2 TO ROAM"
+			check(me.set_lock and me.role != main.Athlete.Role.DL, "set non-DL defender (%s)" % me.role)
+			check(main.pres.overlay.status_l.text == hint and main.pres.overlay.status_pill.visible, "pill shows the roam hint (%s)" % main.pres.overlay.status_l.text)
+			check(main.hud.text.find(hint) >= 0, "text HUD prompt carries the hint")
+			var launch = root.get_node_or_null("Launch")
+			var saved: Dictionary = launch.settings.bindings
+			launch.settings.bindings = {"snap": KEY_B}
+			check(main.roam_hint_key() == "B", "hint names the rebound snap key (%s)" % main.roam_hint_key())
+			launch.settings.bindings = saved
+			_key(KEY_SPACE)
+			check(main.roam_hint_key() == "SPACE", "one press: still set, hint stays")
+			_key(KEY_SPACE)
+			check(not me.set_lock and main.roamed_once and main.roam_hint_key() == "", "double-tap roams and retires the hint")],
+		[4645, func(): main.series.start(1, 25.0)],
+		[4649, func():
+			check(main.world.get_athlete(main.my_id).set_lock, "later play: set again")
+			check(main.pres.overlay.status_l.text == "" and not main.pres.overlay.status_pill.visible, "later play: no hint in the pill (%s)" % main.pres.overlay.status_l.text)
+			check(main.hud.text.find("PRE-SNAP: SET") >= 0 and main.hud.text.find("TO ROAM") < 0, "later play: plain PRE-SNAP: SET")],
 		# Defense Space double-tap unlocks a stance without snapping; one press does nothing (#142).
 		[4650, func(): main.series.start(1, 25.0)],
 		[4651, func():
@@ -240,8 +278,14 @@ func _initialize() -> void:
 		[7100, func(): main.replay_dir = "user://test_flow_replays"; main.configure(7); main.ai.defense_enabled = false],
 		[7101, func(): _key(KEY_SPACE)],
 		[7200, func(): main.world.carrier().position = Vector2(26, 101.0)],
-		[7203, func(): check(main.world.phase == main.World.Phase.DEAD, "play over"); frozen_y = main.world.athletes[0].position.y; _key(KEY_V); check(main.replay_active, "V starts instant replay")],
+		[7203, func():
+			check(main.world.phase == main.World.Phase.DEAD, "play over")
+			frozen_y = main.world.athletes[0].position.y
+			offline_replay_frames = main.replay.frames.size()
+			_key(KEY_V)
+			check(main.replay_active, "V starts instant replay")],
 		[7210, func(): var p = main.replay.last_play(); var smp = main.replay.sample(); var rp = Vector3(smp["pos"][3].x, 0, -smp["pos"][3].y); check(main.views[3].target_position().distance_to(rp) < 0.01, "views show replay frames"); check(main.views[3].position.distance_to(rp) < 0.5, "drawn view within one interpolation step of the replay frame"); check(main.hud.text.find("REPLAY 0.5x") >= 0, "HUD shows replay"); check(absf(main.world.athletes[0].position.y - frozen_y) < 0.001 and main.world.phase == main.World.Phase.DEAD, "offline sim frozen during replay")],
+		[7211, func(): check(main.replay.frames.size() == offline_replay_frames, "offline instant replay pauses recording")],
 		[7500, func(): check(not main.replay_active, "replay ends -> back to live"); main.ai.defense_enabled = true],
 		[7501, func(): main.series.clock.quarter = 4; main.series.clock.remaining = 0.0; main.series.last_result = {"type": "incomplete"}; main.next_play()],
 		[7502, func(): check(main.saved_replay != "" and FileAccess.file_exists(main.saved_replay), "replay saved at final (%s)" % main.saved_replay)],
@@ -271,13 +315,18 @@ func _initialize() -> void:
 			_key(KEY_G)
 			var back = main.world.find_role(0, main.Athlete.Role.RB)
 			check(main.world.carrier() == back and main.controlled_id == main.my_id, "handoff keeps control of the assigned QB")],
+		[7900, func(): _check_carry_pose(false, "RB running after the handoff")],   # #244 (frame 7900 only)
 		[7930, func():
 			var back = main.world.carrier()
 			check(back != null and back.position.y > main.world.los_y and main.world.phase == main.World.Phase.LIVE, "bot RB runs across the LOS and stays live")
 			if back != null:
+				check(main.roster.claim(98, main.roster.slot_of_athlete(back.id)), "replacement takes over the bot RB")
 				back.position.x = -0.5],
 		[7932, func():
-			check(main.world.phase == main.World.Phase.DEAD and main.stats.total("car") == 1 and main.stats.total("rush_yds") > 0.0, "whistle records the RB's rushing attempt and gain")],
+			check(main.world.phase == main.World.Phase.DEAD and main.stats.total("car") == 1 and main.stats.total("rush_yds") > 0.0, "whistle records the RB's rushing attempt and gain")
+			check(main.stats.get_line("Bot", "RB").get("car") == 1.0 and main.stats.player_summary(98).is_empty(),
+				"handoff through G leaves the carry with the bot who received it")
+			main.roster.release(98)],
 		# C04a: T from dead ball, then the one-minute warning at the next whistle.
 		[7950, func():
 			main.configure(3)
@@ -315,6 +364,24 @@ func _initialize() -> void:
 		[8251, func(): main.series.clock.quarter = 4; main.series.clock.remaining = 0.0; main.series.last_result = {"type": "incomplete"}; main.next_play()],
 		[8252, func(): check(main.series.is_final(), "final"); _key(KEY_V); check(main.replay_active and main.replay_reel, "V at FINAL plays the highlight reel")],
 		[8254, func(): check(main.hud.text.find("HIGHLIGHT REEL") >= 0, "HUD: HIGHLIGHT REEL"); check(main.postgame == null, "postgame show waits while the reel plays"); _key(KEY_V); check(not main.replay_active, "V exits the reel"); main.auto_replay = false; main.ai.defense_enabled = true; for f in DirAccess.get_files_at(ProjectSettings.globalize_path("user://test_flow_replays")): DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_flow_replays/" + f))],
+		# #379 jump: Space in live play hops (JUMP_STAMINA); again within the chain window costs JUMP_CHAIN_STAMINA.
+		[8260, func(): main.configure(7); main.ai.defense_enabled = false],
+		[8261, func(): _key(KEY_SPACE); check(main.world.phase == main.World.Phase.LIVE, "Space snaps before the jump step")],
+		[8270, func():
+			var a = main.world.get_athlete(main.controlled_id)
+			var s0: float = a.stamina
+			check(a.can_act() and not a.is_jumping() and a.jump_chain_t == 0.0, "jump: controlled athlete can act on the ground")
+			_key(KEY_SPACE)
+			check(a.is_jumping(), "Space jumps in live play (#379)")
+			check(absf(s0 - a.stamina - main.T.JUMP_STAMINA) < 0.001, "jump costs JUMP_STAMINA (%.3f -> %.3f)" % [s0, a.stamina])],
+		[8310, func():
+			var a = main.world.get_athlete(main.controlled_id)
+			var s0: float = a.stamina
+			check(not a.is_jumping() and a.jump_chain_t > 0.0, "jump: landed, inside the chain window (%.2f s left)" % a.jump_chain_t)
+			_key(KEY_SPACE)
+			check(a.is_jumping(), "Space jumps again right after landing")
+			check(absf(s0 - a.stamina - main.T.JUMP_CHAIN_STAMINA) < 0.001, "chained jump costs JUMP_CHAIN_STAMINA (%.3f -> %.3f)" % [s0, a.stamina])],
+		[8350, func(): check(not main.world.get_athlete(main.controlled_id).is_jumping(), "chained jump lands"); _force_dead_if_live(); main.ai.defense_enabled = true],
 		# Training ground: hub portals, blocking station, Backspace home, practice-field targets
 		[8600, func(): main.training_path = "user://test_flow_training.json"; DirAccess.remove_absolute(ProjectSettings.globalize_path(main.training_path)); main.start_practice("hub")],
 		[8602, func(): check(main.drill.kind == "hub" and main.world.phase == main.World.Phase.LIVE, "training ground: free roam with the ball"); check(main.field_root.get_node_or_null("TrainingArt") != null and main.field_root.get_node("TrainingArt").get_children().filter(func(n): return n.name.begins_with("Portal_")).size() == 3, "three portals built"); check(main.pres.overlay.picker_title.text == "PICK A STATION", "overlay coaching card (%s)" % main.pres.overlay.picker_title.text); check(main.pres.overlay.mode_l.text == "TRAINING GROUND", "overlay title")],
@@ -326,6 +393,75 @@ func _initialize() -> void:
 		[9002, func(): var t: Vector2 = main.Drills.target_list(main.field)[0]["pos"]; main.world.get_athlete(main.my_id).position = t - Vector2(0, 10); main.aim_point = t],
 		[9030, func(): _key(KEY_J); check(main.drill.throws == 1, "practice-field throw with the real throw path")],
 		[9200, func(): check(main.drill.hits == 1 and main.drill.points >= 1, "hit the short target (%s)" % main.drill.last_result); check(main.world.ball.is_held_by(main.my_id), "ball back in your hands"); DirAccess.remove_absolute(ProjectSettings.globalize_path(main.training_path))],
+		# #140 mouse-wheel camera zoom through the real mouse handler: pre-snap and live on the
+		# follow camera, clamped both ways, saved to settings, middle click resets; ignored in
+		# the passer's POV aim, with the taunt wheel open and in replays. Window 12300-12390.
+		[12300, func():
+			main.configure(7); main.ai.defense_enabled = false; main.pov_enabled = false
+			var launch = root.get_node("/root/Launch")
+			zoom_path0 = launch.settings_path
+			launch.settings_path = ZOOM_SETTINGS
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(ZOOM_SETTINGS))
+			main.set_camera_zoom(main.CameraZoom.DEFAULT); main.cam_zoom_shown = main.cam_zoom],
+		[12302, func():
+			var Z = main.CameraZoom
+			check(main.world.phase == main.World.Phase.PRESNAP and not main.pov_active(), "zoom step: pre-snap on the follow camera")
+			_wheel(true)
+			check(is_equal_approx(main.cam_zoom, Z.DEFAULT - Z.STEP), "wheel up zooms in pre-snap (%.2f)" % main.cam_zoom)
+			check(main.cam_zoom_shown == Z.DEFAULT, "the zoom eases (not applied until the camera updates)")
+			var saved = load("res://src/ui/settings_store.gd").new(); saved.load_file(ZOOM_SETTINGS)
+			check(is_equal_approx(saved.camera_zoom, main.cam_zoom), "the zoom level is saved to settings (%.2f)" % saved.camera_zoom)
+			for i in 30: _wheel(true)
+			check(main.cam_zoom == Z.MIN, "wheel up stops at the near limit %.1f" % Z.MIN)
+			for i in 30: _wheel(false)
+			check(main.cam_zoom == Z.MAX, "wheel down stops at the far limit %.1f" % Z.MAX)
+			_middle_click()
+			check(main.cam_zoom == Z.DEFAULT, "middle click resets the zoom")
+			_wheel(false); _wheel(false)
+			check(is_equal_approx(main.cam_zoom, 1.2), "two notches down = 1.2 (%.2f)" % main.cam_zoom)],
+		[12340, func():
+			var d: float = main.camera.global_position.distance_to(main.player.global_position)
+			var want: float = main.FOLLOW_CAM_OFFSET.length() * 1.2
+			check(absf(main.cam_zoom_shown - 1.2) < 0.001 and absf(d - want) < 0.6, "the follow camera eased out to 1.2x (%.1f m from the player, want %.1f)" % [d, want])
+			_key(KEY_SPACE)],
+		[12350, func():
+			check(main.world.phase == main.World.Phase.LIVE, "zoom step: snapped")
+			_wheel(true)
+			check(is_equal_approx(main.cam_zoom, 1.1), "wheel zooms during live play (%.2f)" % main.cam_zoom)
+			var launch = root.get_node("/root/Launch")
+			main.replay_active = true
+			check(not main.zoom_camera(1.0) and is_equal_approx(main.cam_zoom, 1.1), "wheel ignored during a replay")
+			main.camera_follow = main.player.global_position
+			main._update_camera(1.0 / 60.0)
+			var d: float = main.camera.global_position.distance_to(main.player.global_position)
+			check(absf(d - main.FOLLOW_CAM_OFFSET.length()) < 0.01, "the replay Player cam uses the default framing (%.2f m)" % d)
+			main.replay_active = false
+			var ct = main.CoinToss.new()   # stand-in: only "a toss cutscene is up" matters here
+			main.coin_toss = ct
+			check(not main.zoom_camera(-1.0) and is_equal_approx(main.cam_zoom, 1.1), "wheel ignored during the coin-toss cutscene (#129 poses the camera itself)")
+			main.coin_toss = null
+			ct.free()
+			check(launch.settings.camera_zoom == main.cam_zoom, "Launch settings hold the live zoom")],
+		[12360, func(): _force_dead_if_live(); main.configure(7); main.pov_enabled = true; main.mouse_captured_override = true],
+		[12362, func():
+			check(main.pov_active(), "zoom step: QB in POV aim")
+			var before := [main.cam_zoom, main.aim_yaw, main.aim_pitch, main.charge, main.charging]
+			_wheel(true); _wheel(false); _wheel(false); _middle_click()
+			check([main.cam_zoom, main.aim_yaw, main.aim_pitch, main.charge, main.charging] == before, "wheel and middle click do nothing in POV aim (zoom, aim, charge unchanged)")
+			main.pov_enabled = false
+			main.mouse_captured_override = null
+			_key(KEY_C)
+			check(main.taunt_wheel.open and not main.pov_active(), "taunt wheel open on the follow camera")
+			_wheel(true); _middle_click()
+			check(is_equal_approx(main.cam_zoom, 1.1), "wheel and middle click do nothing while the taunt wheel is open")
+			main.taunt_wheel.close()
+			_wheel(true)
+			check(is_equal_approx(main.cam_zoom, 1.0), "the wheel zooms again once the taunt wheel closes")],
+		[12390, func():
+			var launch = root.get_node("/root/Launch")
+			launch.settings_path = zoom_path0
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(ZOOM_SETTINGS))
+			main.ai.defense_enabled = true],
 		# Gridiron controls: POV aim + throw (mouse look), Q/E spin, F dive, wheel/C taunt
 		[12400, func(): main.configure(7); main.ai.defense_enabled = false; main.pov_enabled = true],
 		[12402, func(): check(main.pov_active(), "QB presnap: POV aim active"); check(absf(main.aim_yaw) < 0.001, "aim starts downfield"); _key(KEY_SPACE)],
@@ -358,51 +494,9 @@ func _initialize() -> void:
 			check(qb.move_t == 0.0 and qb.move_charge == c0, "R without a charge does not dash")],
 		[12680, func(): main.world.get_athlete(main.controlled_id).facing = Vector2(0, 1); _key(KEY_F); check(main.world.get_athlete(main.controlled_id).is_diving(), "F dives with the ball")],
 		[12720, func(): check(main.world.phase == main.World.Phase.DEAD and main.last_whistle == "TACKLE", "carrier dive: down where he lands (%s)" % main.last_whistle)],
-		# #139 radial taunt wheel through the real C key + mouse handlers, on a pre-snap QB in
-		# POV aim (the mode where mouse motion matters most). Window 12730-12800.
-		[12730, func(): main.configure(7); main.ai.defense_enabled = false; main.mouse_captured_override = true],
-		[12732, func():
-			var qb = main.world.get_athlete(main.controlled_id)
-			var w = main.taunt_wheel
-			check(main.pov_active() and qb.emote_cd == 0.0, "taunt wheel step: QB in POV aim, no taunt yet")
-			var ev := InputEventMouseButton.new()
-			ev.button_index = MOUSE_BUTTON_WHEEL_DOWN
-			ev.pressed = true
-			main._unhandled_input(ev)
-			check(not w.open and qb.emote_cd == 0.0, "mouse wheel no longer picks or performs taunts")
-			_mouse(Vector2(40, 0))
-			check(main.aim_yaw > 0.0, "mouse motion turns the aim while the wheel is closed")
-			main.reset_aim()
-			var before := [main.aim_yaw, main.aim_pitch, main.camera_orbit, main.aim_distance]
-			_key(KEY_C)
-			check(w.open and w.visible and w.ids.size() == 8, "holding C opens the wheel: a slice per taunt")
-			_mouse(Vector2(0, -80))
-			check(w.highlighted() == w.ids[0], "drag up highlights the top slice (%s)" % w.highlighted())
-			_mouse(Vector2(160, 80))
-			check(w.highlighted() == w.ids[2], "drag right highlights the right slice (%s)" % w.highlighted())
-			check([main.aim_yaw, main.aim_pitch, main.camera_orbit, main.aim_distance] == before, "camera and aim hold still while the wheel is open")
-			_key(KEY_C, false)
-			var v = main.views[main.controlled_id]
-			check(not w.open and qb.emote_cd > 0.0 and v.emote_id == w.ids[2] and v.emote_t > 0.0 and v.bubble.visible, "releasing C performs the highlighted taunt (%s)" % v.emote_id)
-			_mouse(Vector2(40, 0))
-			check(main.aim_yaw > 0.0, "the aim turns again once the wheel closes")
-			main.reset_aim()],
-		[12800, func():
-			var qb = main.world.get_athlete(main.controlled_id)
-			var w = main.taunt_wheel
-			var v = main.views[main.controlled_id]
-			check(qb.emote_cd == 0.0, "taunt cooldown over")
-			_key(KEY_C)
-			_mouse(Vector2(0, -60))
-			_mouse(Vector2(0, 60))
-			_key(KEY_C, false)
-			check(not w.open and qb.emote_cd == 0.0, "releasing C in the dead zone cancels")
-			_key(KEY_C)
-			_key(KEY_C, false)
-			check(qb.emote_cd > 0.0 and v.emote_id == w.ids[2] and v.emote_t > Emotes.DURATION - 0.05, "tapping C repeats the last taunt (%s)" % v.emote_id)
-			main.mouse_captured_override = null
-			main.ai.defense_enabled = true
-			main.pov_enabled = false],   # later steps aim at a field point
+		# #139 taunt wheel: moved to tests/flow/segments/taunt_wheel.gd. Restore the knobs it left
+		# for the steps after it (they aim at a field point, with the defense on).
+		[12800, func(): main.mouse_captured_override = null; main.ai.defense_enabled = true; main.pov_enabled = false],
 		# C04c (#89): Q1 runs out on a live play snapped with Space -> after the whistle the
 		# next play lines up in Q2 at the same spot with the end zones switched. Window 13000-13170.
 		[13000, func(): main.configure(7); main.auto_next = false; main.series.clock.quarter_length = 60.0; main.series.start(0, 40.0); main.set_controlled(main.my_id)],
@@ -424,15 +518,32 @@ func _initialize() -> void:
 		[9500, func(): main.opening_kickoff = true; main.toss_seed = 0; main.configure(7); kick_events.clear(); main.world.event.connect(func(n, _d): kick_events.append(n))],
 		[9502, func(): check(main.series.state == main.Match.State.TOSS and main.series.toss_winner == 0, "home won the toss"); check(main.hud.text.find("COIN TOSS: HOME wins") >= 0, "HUD offers the choice"); check(main.pres.overlay.status_l.text == "YOU WON THE TOSS" and main.pres.overlay.down_l.text == "", "toss pill names the winner, no key hints or COIN TOSS chip (#131) (%s)" % main.pres.overlay.status_l.text); _key(KEY_2)],
 		[9503, func(): check(main.series.state == main.Match.State.KICKOFF and main.world.offense_team == 0, "2 key: home kicks"); check(main.world.ball.is_held_by(main.controlled_id), "you are the kicker"); main.aim_point = Vector2(main.field.width / 2.0, 92.0)],
-		[9505, func(): check(main.can_kick() and main.arc_dots[0].visible, "kick arc preview on the tee"); check(main.hud.text.find("KICKOFF") >= 0, "HUD: kickoff"); check(not main.pres.overlay.picker.visible, "no play picker on a kickoff")],
+		# #68 (frame 9504, plus checks in 9505, 11100, 11141): the stepped meter beside your kicker
+		# follows the aim distance and is change-driven; the kickoff ball stands on a tee.
+		[9504, func():
+			var ka = main.pres.kick_art
+			check(ka.meter.visible and ka.lit == ka.steps_for(main.kick_power()), "kick meter beside your kicker: %d/%d steps for power %.2f" % [ka.lit, ka.STEPS, main.kick_power()])
+			var side: Vector3 = ka.meter.global_position - main.views[main.controlled_id].global_position
+			check(Vector2(side.x, side.z).length() < 2.0, "meter stands next to the kicker (%.2f m)" % Vector2(side.x, side.z).length())
+			check(ka.tee.visible and main.ball_view.global_position.distance_to(ka.tee.global_position) < 0.5, "kickoff ball stands on the tee")
+			check(main.views[main.controlled_id].ball_node == null, "not in the kicker's hand")
+			check(main.ball_view.global_basis.z.normalized().y > 0.9, "ball stands upright")
+			kick_meter_far = [ka.lit, ka.pushes]
+			main.aim_point = Vector2(main.field.width / 2.0, 55.0)],
+		[9505, func():
+			check(main.can_kick() and main.arc_dots[0].visible, "kick arc preview on the tee"); check(main.hud.text.find("KICKOFF") >= 0, "HUD: kickoff"); check(not main.pres.overlay.picker.visible, "no play picker on a kickoff")
+			var ka = main.pres.kick_art
+			check(ka.lit < kick_meter_far[0] and ka.lit == ka.steps_for(main.kick_power()), "shorter aim lights fewer steps (%d < %d)" % [ka.lit, kick_meter_far[0]])
+			check(ka.pushes == kick_meter_far[1] + 1, "meter pushed once for one change, not per frame (%d pushes)" % (ka.pushes - kick_meter_far[1]))
+			main.aim_point = Vector2(main.field.width / 2.0, 92.0)],
 		[9506, func(): _key(KEY_J); check(main.world.kicked and kick_events.has("kick"), "J kicks off at the aim point")],
-		[11100, func(): check(main.world.phase == main.World.Phase.DEAD, "kickoff play over (%s; events %s; ball %d holder %d)" % [main.last_whistle, str(kick_events), main.world.ball.state, main.world.ball.holder_id]); _force_dead_if_live(); main.next_play(); check(main.series.state != main.Match.State.KICKOFF and (main.world.offense_team == 1 or main.series.state == main.Match.State.TRY), "kickoff resolved: return team's ball or a score (%s)" % main.series.last_outcome.get("outcome", "?"))],
+		[11100, func(): check(not main.pres.kick_art.meter.visible and main.pres.kick_art.tee.visible and not main.pres.kick_art.ball_on_tee(main.world), "after the kickoff: meter gone, empty tee left on the turf"); check(main.world.phase == main.World.Phase.DEAD, "kickoff play over (%s; events %s; ball %d holder %d)" % [main.last_whistle, str(kick_events), main.world.ball.state, main.world.ball.holder_id]); _force_dead_if_live(); main.next_play(); check(main.series.state != main.Match.State.KICKOFF and (main.world.offense_team == 1 or main.series.state == main.Match.State.TRY), "kickoff resolved: return team's ball or a score (%s)" % main.series.last_outcome.get("outcome", "?"))],
 		# 4th down: K calls a punt, Space snaps, J punts toward the aim point
 		[11101, func(): main.series.start(0, 30.0); main.series.downs.down = 4; main.set_controlled(main.my_id); kick_events.clear()],
 		[11102, func(): _key(KEY_K); check(main.world.kick_play == "punt", "K key calls a punt")],
 		[11103, func(): check(main.hud.text.find("KICK: PUNT") >= 0, "HUD shows the punt call"); _key(KEY_SPACE)],
 		[11140, func(): check(main.world.ball.is_held_by(main.controlled_id), "punter has the snap"); main.aim_point = Vector2(main.field.width / 2.0, 70.0)],
-		[11141, func(): _key(KEY_J); check(kick_events.has("kick") and not kick_events.has("throw"), "punted, not thrown")],
+		[11141, func(): check(main.pres.kick_art.meter.visible and not main.pres.kick_art.tee.visible, "punt: meter beside the punter, no tee"); _key(KEY_J); check(kick_events.has("kick") and not kick_events.has("throw"), "punted, not thrown")],
 		[11900, func(): _force_dead_if_live(); main.next_play(); check(main.world.offense_team == 1, "punt: possession changes (%s)" % main.series.last_outcome.get("outcome", "?"))],
 		# K twice = field goal; aiming at the posts clears the bar
 		[11901, func(): main.series.start(0, 85.0); main.series.downs.down = 4; main.set_controlled(main.my_id); main.ai.defense_enabled = false],
@@ -572,9 +683,165 @@ func _initialize() -> void:
 		[16202, func(): check(main.drill != null and main.coin_toss == null, "drills never show the coin toss")],
 		[16210, func(): main.opening_kickoff = false; main.configure(7)],
 		[16212, func(): check(main.coin_toss == null and main.series.state != main.Match.State.TOSS, "--no-kickoff: no toss, no cutscene")],
+		# #253: blocking zone. Space snaps, a guard is 7 yd downfield when J throws: FLAG on the HUD;
+		# Enter walks it off 10 yd and replays the down; the next snap clears the line. Window 16400-16700.
+		[16400, func(): main.opening_kickoff = false; main.configure(7); main.auto_next = false; main.pov_enabled = false; main.ai.defense_enabled = false; main.series.start(0, 40.0); main.set_controlled(main.my_id)],
+		[16402, func(): _key(KEY_SPACE); check(main.world.phase == main.World.Phase.LIVE, "Space snaps (blocking-zone play)")],
+		[16440, func():
+			var w = main.world
+			check(w.ball.is_held_by(main.controlled_id) and w.blocking_zone_active(), "QB holds it, blocking zone on")
+			var ol = w.find_role(0, main.Athlete.Role.OL)
+			ol.position = Vector2(ol.position.x, w.los_y + 7.0)
+			main.aim_point = Vector2(3.0, w.los_y + 18.0)
+			_key(KEY_J)
+			check(w.forward_pass_thrown and w.flags.size() == 1 and w.flags[0]["player"] == ol.id, "J throws with a guard 7 yd downfield: flagged (%d)" % w.flags.size())
+			var ov = main.pres.overlay
+			check(ov.banner.visible and ov.banner.text == "FLAG" and ov.banner_sub.text == "ILLEGAL MAN DOWNFIELD", "FLAG banner (%s %s)" % [ov.banner.text, ov.banner_sub.text])
+			check(ov.flag_pill.visible and ov.flag_l.text == "FLAG · ILLEGAL MAN DOWNFIELD · OFFENSE", "flag line while the play is on (%s)" % ov.flag_l.text)],
+		[16600, func():
+			check(main.world.phase == main.World.Phase.DEAD, "pass play over")
+			_key(KEY_ENTER)
+			var d = main.series.downs
+			check(absf(d.los - 30.0) < 0.001 and d.down == 1 and absf(d.first_down_y - 50.0) < 0.001, "Enter: 10 yd walked off, 1st down replayed, line to gain kept (los %.1f, down %d)" % [d.los, d.down])
+			var ov = main.pres.overlay
+			check(ov.flag_pill.visible and ov.flag_l.text == "FLAG · ILLEGAL MAN DOWNFIELD · OFFENSE · 10 YD · REPLAY 1ST DOWN", "ruling on the HUD (%s)" % ov.flag_l.text)],
+		[16620, func(): _key(KEY_SPACE); check(main.world.phase == main.World.Phase.LIVE and not main.pres.overlay.flag_pill.visible, "the next snap clears the ruling")],
+		# #355: window 16820–16824. A completed pass keeps its yards when the receiver fumbles.
+		[16820, func():
+			main.configure(3)
+			main.auto_next = false
+			main.pov_enabled = false
+			main.ai.defense_enabled = false
+			main.ai.offense_enabled = false
+			main.series.start(0, 25.0)
+			main.set_controlled(main.my_id)],
+		[16822, _fumble_completed_pass],
+		[16824, func():
+			check(main.world.phase == main.World.Phase.DEAD, "defender took the receiver's fumble out of bounds")
+			check(main.match_overview()["my_lines"] == ["QB: 1/1 12yd 0TD 0INT"], "Your game credits the completed pass to the fumble spot")
+			check(main.stats.total("rec_yds") == 12.0, "the receiver also keeps the 12 yards")],
+		# #337: window 17400–17452. A short defensive tip spends a down but leaves the ball at the LOS.
+		[17400, func():
+			main.opening_kickoff = false
+			main.configure(3)
+			main.auto_next = false
+			main.pov_enabled = false
+			main.ai.defense_enabled = false
+			main.ai.offense_enabled = false
+			main.series.start(0, 40.0)
+			main.set_controlled(main.my_id)],
+		[17402, func():
+			_key(KEY_SPACE)
+			check(main.world.ball.is_held_by(main.my_id) and main.world.phase == main.World.Phase.LIVE, "Space snaps the short-pass play")
+			var w = main.world
+			for a in w.athletes:
+				a.position = Vector2(25.0, 40.0 + a.id * 2.0)
+			var qb = w.carrier()
+			qb.position = Vector2(12.0, 35.0)
+			w.find_role(1, main.Athlete.Role.CB).position = qb.position + Vector2(0.0, 4.25)
+			main.aim_point = qb.position + Vector2(0.0, 6.0)
+			_key(KEY_J)
+			check(w.forward_pass_thrown, "J releases the short pass")],
+		[17432, func():
+			check(main.world.phase == main.World.Phase.DEAD and main.last_whistle == "BREAKUP", "short defensive touch ends the play as a breakup")
+			check(main.pres.overlay.status_l.text == "PASS BROKEN UP", "HUD shows the breakup ruling")],
+		[17452, func():
+			_key(KEY_ENTER)
+			var d = main.series.downs
+			check(d.offense_team == 0 and is_equal_approx(d.los, 40.0) and d.down == 2, "tip spends the down at the old spot without changing possession")],
+		# #346: window 17500–17502. The picker replaces the pre-snap call and locks on Space.
+		[17500, func():
+			main.configure(3)
+			main.auto_next = false
+			main.ai.defense_enabled = false
+			main.ai.offense_enabled = false
+			main.series.start(0, 25.0)
+			main.set_controlled(main.my_id)],
+		[17502, _check_audible],
+		# #323: window 17900–17904. A fumbled keeper still appears in the QB's match stats.
+		[17900, func():
+			main.configure(3)
+			main.auto_next = false
+			main.ai.defense_enabled = false
+			main.ai.offense_enabled = false
+			main.series.start(0, 25.0)
+			main.set_controlled(main.my_id)],
+		[17902, _fumble_keeper],
+		[17904, func():
+			check(main.world.phase == main.World.Phase.DEAD, "defender took the fumble out of bounds")
+			check(main.match_overview()["my_lines"] == ["QB: 1 car 12yd 0TD"], "Your game credits the fumbled keeper once")],
+		# #375: window 18100–18142. The center and rusher release as the QB steps out.
+		[18100, func():
+			main.configure(5)
+			main.auto_replay = false
+			main.auto_next = false
+			main.ai.offense_enabled = false
+			main.ai.defense_enabled = false
+			main.series.start(0, 40.0)
+			main.set_controlled(main.my_id)],
+		[18102, func(): _key(KEY_SPACE); check(main.world.phase == main.World.Phase.LIVE, "Space starts the blocking play")],
+		[18138, func():
+			var w = main.world
+			var x: float = w.field.width * 0.5
+			var blocker = w.find_role(0, main.Athlete.Role.C)
+			blocker.position = Vector2(x, 39.6)
+			blocker.facing = Vector2.DOWN
+			w.find_role(1, main.Athlete.Role.DL).position = Vector2(x, 40.5)],
+		[18140, func():
+			var w = main.world
+			var blocker = w.find_role(0, main.Athlete.Role.C)
+			var defender = w.find_role(1, main.Athlete.Role.DL)
+			check(blocker.engaged_with == defender.id and defender.engaged_with == blocker.id, "center and rusher are engaged")
+			var qb = w.carrier()
+			check(qb != null, "QB holds the snap")
+			if qb != null:
+				qb.position.x = -0.5],
+		[18142, func():
+			var w = main.world
+			check(w.phase == main.World.Phase.DEAD and main.last_whistle == "OUT OF BOUNDS", "QB stepping out ends the play")
+			check(w.athletes.all(func(a): return a.engaged_with == -1), "all blocks end at the whistle")],
 	]
 	for f in range(13431, 13470):   # the LB keeps walking into the QB (bodies collide, QB gives ground)
 		steps.append([f, _fp_push])
+
+func _check_audible() -> void:
+	var overlay = main.pres.overlay
+	_key(KEY_Q)
+	overlay._refresh_picker(main, false)
+	check(not overlay.picker.visible, "Q closes the pre-snap play picker")
+	_key(KEY_Q)
+	overlay._refresh_picker(main, false)
+	check(overlay.picker.visible, "Q reopens the pre-snap play picker")
+	var slants: Button = overlay.picker_grid.get_children().filter(func(b): return b.text == "Slants")[0]
+	var flood: Button = overlay.picker_grid.get_children().filter(func(b): return b.text == "Flood")[0]
+	slants.pressed.emit()
+	flood.pressed.emit()
+	overlay._refresh_picker(main, false)
+	main._render()
+	check(main.world.play_name == "Flood" and flood.button_pressed and not slants.button_pressed, "the second picker call selects Flood")
+	check(main.route_mesh.get_surface_count() > 0, "the offense sees the audible's routes")
+	_key(KEY_SPACE)
+	slants.pressed.emit()
+	overlay._refresh_picker(main, false)
+	main._render()
+	check(main.world.phase == main.World.Phase.LIVE and main.world.play_name == "Flood", "a stale picker action cannot change a live call")
+	check(not overlay.picker.visible and main.route_mesh.get_surface_count() == 0, "Space hides the picker and route art")
+
+func _fumble_keeper() -> void:
+	_key(KEY_SPACE)
+	var w = main.world
+	var qb = w.carrier()
+	check(qb != null and qb.id == main.my_id, "Space snaps to the local quarterback")
+	if qb == null:
+		return
+	var defender = w.find_role(1, main.Athlete.Role.CB)
+	qb.position = Vector2(5.0, w.los_y + 12.0)
+	defender.position = qb.position
+	w._fumble(qb, defender)
+	w.ball.position.z = 0.0
+	w._step_loose(0.0)
+	check(w.carrier() == defender, "defense recovers the QB fumble")
+	defender.position.x = -0.5
 
 func _fp_push() -> void:
 	var c = main.world.carrier()
@@ -658,6 +925,25 @@ func _hold(code: int, pressed: bool) -> void:
 	Input.parse_input_event(ev)
 	Input.flush_buffered_events()
 
+## One mouse-wheel notch through the real handler (#140 camera zoom).
+func _wheel(up: bool) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_WHEEL_UP if up else MOUSE_BUTTON_WHEEL_DOWN
+	ev.factor = 1.0
+	ev.pressed = true
+	main._unhandled_input(ev)
+	ev = ev.duplicate()
+	ev.pressed = false
+	main._unhandled_input(ev)
+
+## Middle press + release with no drag through the real handler (#140 zoom reset).
+func _middle_click() -> void:
+	for down in [true, false]:
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_MIDDLE
+		ev.pressed = down
+		main._unhandled_input(ev)
+
 ## Relative mouse motion through the real handler (#139 taunt wheel / mouse look).
 func _mouse(rel: Vector2) -> void:
 	var ev := InputEventMouseMotion.new()
@@ -689,7 +975,12 @@ func _connect_listeners() -> void:
 		if n == "catch":
 			caught_by = d["by"]
 			if frame >= 480 and frame < 800:
-				main.ai.defense_enabled = true)
+				main.ai.defense_enabled = true
+				# #246: the receiver's pose as the ball arrives (views still show the last frame).
+				var cv = main.views[caught_by]
+				var ball: Vector3 = main.ball_view.global_position
+				catch_pose = [cv.pose.catch_weight, cv.pose.catch_reach, ball.distance_to(cv.hand_r.global_position),
+					ball.distance_to(cv.global_position + Vector3.UP * cv.CATCH_HEIGHT)])
 	main.world.event.connect(func(n, d): if n == "tackle" and caught_by >= 0: tackled = true)
 	main.world.event.connect(func(n, _d): if n == "interception": picked = true)
 	main.world.event.connect(func(n, _d): if n == "snap" and frame > 4171 and frame <= 4481: bot_snap_clock = main.series.clock.play_clock)
@@ -764,16 +1055,113 @@ func _force_dead_if_live() -> void:
 		main.series.last_result = {"type": "incomplete"}
 		main.world.phase = main.World.Phase.DEAD
 
+func _fumble_completed_pass() -> void:
+	_key(KEY_SPACE)
+	var w = main.world
+	var qb = w.carrier()
+	check(qb != null and qb.id == main.my_id, "Space snaps to the quarterback for the fumble scenario")
+	if qb == null:
+		return
+	var receiver = w.find_role(0, main.Athlete.Role.WR)
+	var defender = w.find_role(1, main.Athlete.Role.CB)
+	for athlete in w.athletes:
+		athlete.position = Vector2(24.0, 60.0 + athlete.id * 2.0)
+	qb.position = Vector2(5.0, 20.0)
+	var catch_spot := Vector2(5.0, 33.0)
+	receiver.position = catch_spot
+	main.aim_point = catch_spot
+	_key(KEY_J)
+	check(w.forward_pass_thrown, "J throws the pass")
+	w.ball.position = Vector3(catch_spot.x, catch_spot.y, 1.0)
+	check(w._try_catch() and w.carrier() == receiver, "the receiver catches the pass")
+	receiver.position.y = 37.0
+	defender.position = receiver.position
+	w._fumble(receiver, defender)
+	w.ball.position.z = 0.0
+	w._step_loose(0.0)
+	check(w.carrier() == defender, "defense recovers the receiver's fumble")
+	defender.position.x = -0.5
+
 func _lead_to_wr() -> void:
 	var qb = main.world.find_role(0, main.Athlete.Role.QB)
 	var wr = main.world.find_role(0, main.Athlete.Role.WR)
 	var from: Vector3 = Vector3(qb.position.x, qb.position.y, main.T.RELEASE_HEIGHT)
 	main.aim_point = main.Passing.lead_target(from, wr.position, wr.velocity, main.T.PLAYER_PASS_POWER)
 
+## #244: the carrier's arm tucks the ball (both hands for a passer before the throw), and
+## the ball view sits in the palm socket in the same frame, not one frame behind the hand.
+## #159: a pass in flight points its long axis (the ball's local Z) along its velocity at
+## unit scale, and spirals about that axis between frames 90 and 92.
+var _flight_y := Vector3.ZERO
+func _check_ball_flight(first: bool) -> void:
+	var b = main.world.ball
+	var bx: Basis = main.ball_view.global_basis
+	var v := Vector3(b.velocity.x, b.velocity.z, -b.velocity.y).normalized()
+	check(b.state == b.State.IN_FLIGHT, "#159 pass still in the air at frame %d" % (90 if first else 92))
+	check(absf(bx.z.length() - 1.0) < 0.01 and absf(bx.x.length() - 1.0) < 0.01, "#159 ball in flight at unit scale (%.2f)" % bx.z.length())
+	check(absf(bx.z.normalized().dot(v)) > 0.99, "#159 long axis along the flight (dot %.3f)" % bx.z.normalized().dot(v))
+	if first:
+		_flight_y = bx.y
+	else:
+		check(bx.y.angle_to(_flight_y) > 0.3, "#159 ball spirals about its long axis (%.2f rad in 2 frames)" % bx.y.angle_to(_flight_y))
+
+## #159: a dead ball nobody holds lies on its side on the turf, not sunk to its centre. This
+## incompletion stops the ball in the air, so frame 396 drops it to the ground (as a pass that
+## lands does: sim height 0) and frame 400 checks it, after the view's one-tick interpolation lag.
+func _drop_dead_ball() -> void:
+	check(main.world.phase == main.World.Phase.DEAD and main.world.ball.holder_id < 0, "#159 the incompletion is dead and nobody holds the ball")
+	main.world.ball.position.z = 0.0
+
+func _check_ball_lying() -> void:
+	var bv: Node3D = main.ball_view
+	check(bv.global_position.y >= preload("res://src/game/art/football.gd").RADIUS - 0.001,
+		"#159 dead ball rests on the turf (centre y %.2f)" % bv.global_position.y)
+	check(absf(bv.global_basis.z.normalized().y) < 0.05, "#159 dead ball lies on its side")
+
+func _check_carry_pose(two_hand: bool, context: String) -> void:
+	var c = main.world.carrier()
+	if c == null:
+		check(false, "carry pose: someone holds the ball (%s)" % context)
+		return
+	var v = main.views[c.id]
+	check(v.ball_node == main.ball_view and v.pose.weight > 0.9 and v.pose.two_hand == two_hand,
+		"carry pose on (%s): weight %.2f, two hands %s" % [context, v.pose.weight, v.pose.two_hand])
+	var off: float = main.ball_view.global_position.distance_to(v.ball_transform().origin)
+	check(off < 0.05, "ball pinned to the palm socket (%s): %.3f m off" % [context, off])
+	var to_hand: float = main.ball_view.global_position.distance_to(v.hand_r.global_position)
+	check(to_hand < 0.3, "ball in the hand (%s): %.2f m from the wrist" % [context, to_hand])
+	# #245: heads far from the camera and the carrier don't look. Views within 15% of the
+	# cutoff are skipped (they may be fading). Near ones are checked by role below.
+	var cam: Camera3D = main.get_viewport().get_camera_3d()
+	var size := func(o): return o.global_position.distance_to(cam.global_position) * tan(deg_to_rad(cam.fov) * 0.5) / o.LOOK_VIEW_SIZE
+	var near: Array = main.views.filter(func(o): return o != v and size.call(o) < 0.85)
+	var far: Array = main.views.filter(func(o): return o != v and size.call(o) > 1.15)
+	var far_ok: int = far.filter(func(o): return o.pose.look_weight < 0.5).size()
+	check(v.pose.look_weight < 0.2 and far_ok == far.size(),   # the carrier's look fades over ~0.3 s
+		"heads far from the camera don't look (%s): %d/%d far don't, carrier %.2f" % [context, far_ok, far.size(), v.pose.look_weight])
+	# Live with the ball held: offensive linemen and route runners don't watch it; free defenders do.
+	var offense: int = main.world.offense_team
+	var o_look: int = main.views.filter(func(o): return o != v and o.athlete.team == offense and o.pose.look_weight > 0.5).size()
+	var d_free: Array = near.filter(func(o): return o.athlete.team != offense and o.athlete.engaged_with < 0 and not o.athlete.blocking)
+	check(main.views.all(func(o): return o.pose.catch_weight == 0.0), "nobody reaches without a pass in the air (%s)" % context)
+	check(o_look == 0 and d_free.all(func(o): return o.pose.look_weight > 0.5),
+		"only the defense watches a held ball (%s): %d offense look, %d free defenders near the camera all look" % [context, o_look, d_free.size()])
+
+## #245: after the ball teleports (new spot), heads point at it at once instead of
+## sweeping across the field: every looking view's look point is already at the ball.
+func _check_look_snaps(context: String) -> void:
+	var ball: Vector3 = main.ball_view.global_position
+	var worst := 0.0
+	for o in main.views:
+		if o.pose.look_weight > 0.0:
+			worst = maxf(worst, o._look_point.distance_to(ball))
+	check(worst < 1.0, "heads snap to the ball after a teleport (%s): worst %.1f m behind" % [context, worst])
+
 var _sorted := false
 func _physics_process(_dt: float) -> bool:
 	if not _sorted and not steps.is_empty():
 		steps.sort_custom(func(a, b): return a[0] < b[0])   # out-of-order steps once silently never ran
+		load("res://tests/flow/segments.gd").append(self, steps)   # tests/flow/segments/*.gd run after these
 		_sorted = true
 	if steps.is_empty():  # _initialize failed: never hang
 		print("GAME FLOW FAIL (setup error)")

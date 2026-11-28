@@ -2,6 +2,8 @@
 .test-output.log
 .smoke-output.log
 *.import
+# Team logos need mipmaps (drawn at 34 px from 512 px): keep their import settings (#233, #260).
+!assets/teams/*.import
 .flow-output.log
 .net-host.log
 .net-client.log
@@ -11,6 +13,7 @@
 .mm-server.log
 .mm-a.log
 .mm-b.log
+.mm-test.log
 .parity-*.log
 .menu-flow.log
 build/

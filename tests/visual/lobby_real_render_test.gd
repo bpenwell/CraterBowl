@@ -11,7 +11,7 @@ func _run() -> void:
 	check(not launch.HeadlessMeshGuard.needed(), "guard reports not needed under real rendering")
 	var guards := launch.get_children().filter(func(c): return c.get_script() == launch.HeadlessMeshGuard)
 	check(guards.is_empty(), "Launch added no headless mesh guard")
-	# visual_test.sh shares one user dir across cases: keep this case's name/profile out of it.
+	# Own files for this case's name/profile (optional since #236: every case gets a fresh user://).
 	launch.settings_path = "user://test_lobby_render_settings.cfg"
 	var menu = preload("res://scenes/menu.tscn").instantiate()
 	menu.set_meta("force_menu", true)

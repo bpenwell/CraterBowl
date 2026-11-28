@@ -3,8 +3,8 @@
 Feature-level doc: how this works for players **today** on `main`. Design/implementation detail: [architecture](../design/architecture.md). Open work: GitHub issues labelled `area:movement` (listed below).
 
 ## Summary
-You run at a fixed speed with instant starts and stops, sprint on a stamina bar, and have two special moves (dash and
-spin) that spend charges earned by running. Defenders tackle with a committed dive that costs a second on the ground
+You run at a fixed speed with instant starts and stops, sprint on a stamina bar, jump on Space (stamina, more when
+chained), and have two special moves (dash and spin) that spend charges earned by running. Defenders tackle with a committed dive that costs a second on the ground
 if it misses. All movement is camera-relative.
 
 ## How it plays
@@ -20,7 +20,7 @@ Defaults from `src/ui/controls.gd`; every keyboard action can be rebound in Sett
 | Spin left / right | Q / E | X / Y |
 | Dive tackle | F | B |
 | Block (shield) | hold right mouse | none |
-| Snap / break stance (defense: double-tap) / fair catch (returner, kick in the air: see [kicking](kicking.md)) | Space | A |
+| Snap / break stance (defense: double-tap) / fair catch (returner, kick in the air: see [kicking](kicking.md)) / **jump** (live play) | Space | A |
 | Look / aim | mouse (middle drag pre-snap) | none (#33) |
 
 Passing, handoff and play-call keys are in [offense.md](offense.md).
@@ -52,6 +52,28 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
   movement earn nothing. Charges carry over between plays.
 - You can't throw or dive during a move. A move cancels the shield.
 
+### Jump (#379)
+- **Space** (gamepad A) during live play. It is the Snap key, routed by context: before the snap it hikes or breaks
+  stance, and while a punt or kickoff is in the air a return-team player's press signals a fair catch instead. Rebinding
+  Snap moves the jump too.
+- A committed hop: `JUMP_TIME` (0.6 s) in the air, feet peaking at `JUMP_HEIGHT` (0.9 yd) mid-air. You keep your
+  takeoff velocity (a sprinting jump covers about 5.7 yd) and can't steer, dive, dash, spin, throw, hand off or shield
+  until you land. A ball carrier whose play is whistled dead mid-air lands on the spot. Landing goes straight back into running: no stumble, no lockout.
+- **Stamina:** a jump costs `JUMP_STAMINA` (0.05). A jump within `JUMP_CHAIN_WINDOW` (0.5 s) of your last landing is
+  chained and costs `JUMP_CHAIN_STAMINA` (0.25) instead, so four chained hops empty a full bar. Without the stamina
+  for it, nothing happens. Stamina doesn't regenerate in the air.
+- **High-pointing:** while you're in the air you can catch or deflect a pass up to `CATCH_MAX_HEIGHT` (2.6 yd) plus
+  your current jump height (`World.catch_ceiling`). Standing players are unchanged. Kick catches ignore the jump.
+  Contested-catch rules are #9.
+- No immunity: you can still be dive-tackled in the air, and a blocker who reaches you mid-air engages you and drives you
+  like any block (jumping into a blocker gets you blocked). You can't jump while engaged.
+- Online, the client doesn't predict the takeoff yet: your jump starts when the host's snapshot arrives, one round trip
+  after the press (client prediction of moves is #45).
+- Bots don't jump yet (#208). Instant replays don't show the jump yet (#380).
+- For code that blends into a jump (#361): `Athlete.is_jumping()`, `jump_progress()` (0 takeoff to 1 landing),
+  `jump_height()` (yards) and `jump_t` (seconds left). The view plays the UAL `Jump_Start`, `Jump` (the looping tuck) and
+  `Jump_Land` clips and lifts the body on its own display-rate clock.
+
 ### Dive tackle
 - **F** launches a dive in your facing direction at `DIVE_SPEED` (11 yd/s) for `DIVE_TIME` (0.35 s), about 3.9 yd.
 - Any opponent of the carrier whose dive brings him within `TACKLE_REACH` (1.0 yd) tackles him, unless the carrier is
@@ -74,13 +96,15 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
 
 ## Code and tests
 - `src/sim/player_motion.gd` — run/sprint speed, stamina, lockout, clamping.
-- `src/sim/athlete.gd` — dive, recovery, dash/spin state (`start_move`, `start_dive`, `move_charge`).
-- `src/sim/world.gd` — `step_athlete` (charge gain), `evade`, `tackle`, `_check_tackles`.
+- `src/sim/athlete.gd` — dive, recovery, dash/spin and jump state (`start_move`, `start_dive`, `start_jump`, `move_charge`).
+- `src/sim/world.gd` — `step_athlete` (charge gain), `evade`, `tackle`, `jump`, `catch_ceiling`, `_check_tackles`.
+- `src/net/protocol.gd` — `apply_action` routes `snap` to `World.jump` in live play; the jump clock rides in the snapshot flags.
 - `src/ui/controls.gd` — action table, rebinding, gamepad map. `src/ui/launch.gd` — gamepad to key translation.
 - `src/game/main.gd` — `read_input` (camera-relative), key handling. `src/game/overlay.gd` — stamina bar, charge circles.
 - Tests: `tests/test_player_motion.gd`, `tests/test_live_controls.gd`, `tests/test_tackling.gd`,
-  `tests/test_turnovers.gd`, `tests/test_controls.gd` (default keys, saved-binding migration),
-  `tests/game_flow.gd` (R and E consume charges, R without a charge does nothing, F dives), `tests/menu_flow.gd` (rebinding, gamepad).
+  `tests/test_turnovers.gd`, `tests/test_jump.gd`, `tests/test_controls.gd` (default keys, saved-binding migration),
+  `tests/game_flow.gd` (R and E consume charges, R without a charge does nothing, F dives, Space jumps and a chained jump costs more),
+  `tests/visual/jump_test.gd` (takeoff, peak and landing poses), `tests/menu_flow.gd` (rebinding, gamepad).
 
 ## Open issues
 - #5 C03 Movement moveset: jump, dive, dash, spin, stiff-arm

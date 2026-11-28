@@ -20,6 +20,10 @@ Run the full one before every commit that touches code. The pre-commit hook runs
 
 ## The gate tiers (`scripts/check.sh`)
 
+The gate checks that Godot is available before running lint. Set `GODOT=/path/to/godot` when using
+a binary outside `PATH`. The Ubuntu 24.04 PR workflow installs renderer packages from the Ubuntu
+archives and runs `bash tests/ci_setup_test.sh` to check setup failures without changing system APT state.
+
 | Tier | Steps | Catches |
 |---|---|---|
 | `lint` | `tools/lint.gd` compiles every `.gd` (src, tests, tools); grep rules: no default-tessellation primitive meshes in `player.gd`, no engine/time/random calls in `src/sim` | parse errors in files no test loads; perf anti-patterns; sim purity breaks (determinism, server safety) |
@@ -53,8 +57,18 @@ your change**, and stage only your own paths (`AGENTS.md` "Shipping").
   change it in the same commit as the behavior and say so in the message.
 - Anything that binds a port picks a random one per run (`net_test.sh`, `mm_test.sh`, `menu_flow.gd`):
   several sessions run `smoke.sh` at once, and a fixed port made `menu_flow` fail whenever two overlapped.
+- Never wait for a process to start with a fixed `sleep` or a fixed-count poll: on a loaded machine (load
+  average 20-60 on WSL) Godot boots many times slower, and the old 50 x 0.1 s invite-code poll gave up and
+  cascaded into a dozen unrelated NET failures (#283). Use `scripts/wait_lib.sh`: `wait_for` polls until a
+  generous deadline (`WAIT_SECS`, default 90 s) and stops early when the awaited process exits; on failure
+  name the step that never happened and `show_logs` the relevant logs. `timeout` caps are hang guards and
+  get the same headroom. This never loosens an assertion: a passing run waits only as long as it needs.
 - Timing checks use medians and generous budgets. Count-based checks (triangles, nodes, events) are preferred
   because they're identical on every machine.
+- A wall-clock bound on a frame-driven timer must discount time the code under test deliberately doesn't
+  count. The net_test.sh host-loss check subtracts the client's own frame gaps beyond
+  `SILENCE_STEP_MAX`, because the watchdog caps each frame at that. Without it, a starved test
+  process failed the bound under load while the watchdog fired on time (#279).
 
 ## Two ways to run Godot offscreen
 
@@ -67,7 +81,8 @@ your change**, and stage only your own paths (`AGENTS.md` "Shipping").
    fails the boot, game_flow and menu_flow steps if that line reappears (#92). Freeing a mesh node
    outside the tree skips the guard: keep its mesh referenced until after `free()`
    (see `CharacterArt.instance()`). A Label3D frees its own mesh, so a test that builds and
-   frees Label3Ds outside the tree frees them with `HeadlessMeshGuard.free_node()` (#179).
+   frees Label3Ds outside the tree frees them with `HeadlessMeshGuard.free_node()` (#179); in-tree
+   Label3Ds are covered by the guard, which flushes when one leaves the tree (#217).
    test.sh fails on any `ERROR:` line in the unit run and names the test that printed it.
 2. **Xvfb + Mesa software GL** (`scripts/shot.sh`). Real Compatibility (OpenGL 3) renderer on
    `llvmpipe` (CPU) inside a private virtual X display. You get real lighting, shadows, materials
@@ -84,7 +99,16 @@ your change**, and stage only your own paths (`AGENTS.md` "Shipping").
 
 Run `./scripts/visual_test.sh` to execute rendered integration tests on a private Xvfb display.
 It prints the output directory, and `VISUAL_OUTPUT=/absolute/path` lets you choose the directory.
-Each test gets its own output subdirectory and the run uses isolated Godot save data.
+Each case gets `VISUAL_CASE_TIMEOUT` seconds (default 180); a case that runs out prints
+`VISUAL FAIL: <case> timed out after Ns` and stops the run (#281).
+Each test gets its own output subdirectory and its own fresh, empty Godot user data
+(`XDG_DATA_HOME` and `XDG_CONFIG_HOME`; only the `XDG_CACHE_HOME` shader cache is shared), so a case
+that saves settings, a profile or replays to the default `user://` paths can't leak them into a later
+case, whatever the order (#236).
+`harness.gd` asserts that every case starts with nothing in `user://` but Godot's own logs and shader
+cache, and `cross_case_save_test.gd` deliberately saves a name to the default `settings.cfg` early in
+the run so later first-run cases (`menu_boot_test`, `lobby_real_render_test`) prove it. Per-test
+`launch.settings_path = "user://test_<case>_settings.cfg"` lines are optional now; existing ones can stay.
 
 Add a `tests/visual/<scenario>_test.gd` script extending `tests/visual/harness.gd`. Exercise the
 production scene, assert the relevant behavior with `check()`, then `await capture("state-name")`
@@ -126,15 +150,21 @@ page and check that every image displays.
   behind the text"), not the file name or jargon. They become the alt text and the first column.
 - **New screen or new test?** `before_after.sh` copies a capture script or `tests/visual` case that
   only exists on your branch into the base tree, so the base is photographed with the same test.
-  Its `check()`s may fail on the base; that is expected and reported, not an error. A screen that
-  exists on only one side shows as `_(new screen)_` / `_(removed)_` in the table.
-- **Read `changed=` as a hint.** `before_after.sh` prints the percent of pixels that differ per
-  pair and flags `UNCHANGED` at 0.0%: a pair you meant to change that says UNCHANGED missed your
-  change (wrong frame or screen). On menus the players sway and the music bar moves, so even a
-  screen you didn't touch shows ~2–3%. The image is the evidence, not the number.
+  Its `check()`s may fail on the base. The script reports that failure and compares any captures it
+  produced. A failed branch run exits nonzero even if it saved PNGs. Its raw captures stay in
+  `OUT/after` for inspection. A screen that exists on only one side shows as `_(new screen)_` /
+  `_(removed)_` in the table. `bash tests/before_after_test.sh` exercises both exit paths (#324).
+- **Read `changed=` as a hint.** A pair reports `0.0%` and `UNCHANGED` when no sampled pixel
+  differs beyond the comparison tolerance. A positive difference that rounds to zero displays
+  as `<0.1%` (#357). Menu animation can move a few percent of pixels. Look at the paired images
+  to verify what changed. `bash tests/before_after_test.sh` exercises an identical pair and a
+  single-pixel change.
 - **Sides run one after the other** (about 3–4 min for `menu`). `PARALLEL=1` halves that, but two
   llvmpipe renders at once load the CPU enough that time-driven motion drifts: an untouched
   `scorebug` frame measured 39% changed in parallel and 0.4% serial (2026-11-25, WSL, 1280x720).
+- **Comparison write errors fail the command.** The error names the output directory or PNG that failed, and the
+  raw captures stay in `OUT/before` and `OUT/after`. Run `bash tests/before_after_compare_test.sh` to exercise a
+  blocked comparison destination with real offscreen captures (#329).
 - User data is throwaway on both sides, and the base worktree is removed when the script exits.
 - **Linux/WSL only** (needs Xvfb, like `shot.sh`). On macOS or Windows, use the CI
   `visual-test-evidence` artifact as described in AGENTS.md "Regressions" until `remote_shots.sh` (#121) lands.
@@ -193,8 +223,14 @@ Notes:
 
 ## Driving gameplay from scripts
 
-For anything you can assert (positions, phase, HUD text, whistle reason), extend
-`tests/game_flow.gd` rather than eyeballing screenshots. It runs headless in smoke.sh. Use shot.sh
+When a fixture manually updates the scene after a play call, use `main._render()` to refresh
+the route art and other render components through the normal hooks.
+
+For anything you can assert (positions, phase, HUD text, whistle reason), add a game_flow segment
+(`tests/flow/segments/<name>.gd`, contract in `tests/flow/segment.gd`) rather than eyeballing screenshots.
+Each segment starts from a fresh match with main's test knobs reset and relative frames, so parallel PRs
+don't edit the same lines of `tests/game_flow.gd`. `godot --headless --path . --fixed-fps 60 -s
+res://tests/game_flow.gd -- --segment=<name>` runs one segment on its own in seconds. It runs headless in smoke.sh. Use shot.sh
 when the question is visual: does it look right, is it visible, is the camera framing it, is the HUD
 legible, does the new art read.
 

@@ -46,6 +46,7 @@ static func opponent_mesh(reference: MeshInstance3D) -> MeshInstance3D:
 	mesh.mesh = _opponent_mesh
 	mesh.skin = _opponent_skin
 	mesh.skeleton = NodePath("..")
+	mesh.extra_cull_margin = reference.extra_cull_margin
 	reference.get_parent().add_child(mesh)
 	return mesh
 

@@ -5,6 +5,8 @@ const Match := preload("res://src/sim/match.gd")
 const Roster := preload("res://src/sim/roster.gd")
 const Replay := preload("res://src/sim/replay.gd")
 const AI := preload("res://src/sim/ai.gd")
+const PlayerNode := preload("res://src/game/player.gd")
+const Ball := preload("res://src/sim/ball.gd")
 const DT := 1.0 / 60.0
 
 func _rec() -> Array:
@@ -15,6 +17,27 @@ func _rec() -> Array:
 	var r := Replay.new()
 	r.attach(w)
 	return [w, m, r]
+
+func test_relayed_snap_and_ruling_bracket_client_samples() -> void:
+	var s := _rec()
+	var w: World = s[0]
+	var r: Replay = s[2]
+	var at := Vector2(10.0, w.los_y + 12.0)
+	_play(w, r, 4)
+	r.record_event("snap", {"qb": 1})
+	w.phase = World.Phase.LIVE
+	w.ball.position = Vector3(at.x, at.y, 1.0)
+	for i in 14:
+		r.capture(w)
+	r.record_event("out_of_bounds", {"spot": at, "team": w.offense_team})
+
+	assert_eq(r.plays.size(), 1, "host snap created a local play bracket")
+	assert_eq(r.last_play()["start"], 2, "play starts after the presnap samples")
+	assert_eq(r.last_play()["end"], 9, "host ruling closed the bracket")
+	assert_true(r.last_play()["summary"].ends_with("out of bounds"), "host ruling is shown in the replay")
+	assert_true(r.clip_play(0), "relayed play opens")
+	assert_eq(r.sample()["phase"], World.Phase.LIVE)
+	assert_eq(r.sample()["ball"], Vector3(at.x, at.y, 1.0))
 
 func test_capture_rate_and_contents() -> void:
 	var s := _rec()
@@ -27,6 +50,67 @@ func test_capture_rate_and_contents() -> void:
 	var smp := r.sample()
 	assert_true((smp["pos"][3] as Vector2).distance_to(w.athletes[3].position) < 0.01, "first frame matches")
 	assert_eq(r.athlete_count(), 14)
+
+## #374 / #198: frames record the engaged, catch-reach and fair-catch bits the replay view animates.
+func _flags(r: Replay, i: int, frame := -1) -> int:
+	r.time = float(r.frames.size() - 1 if frame < 0 else frame)
+	return int(r.sample()["flags"][i])
+
+func test_capture_records_block_catch_and_fair_catch_bits() -> void:
+	var s := _rec()
+	var w: World = s[0]
+	var r: Replay = s[2]
+	var push: int = w.athletes.find(w.athletes.filter(func(a): return a.role == 7).back())   # an OL on a DL
+	w.athletes[push].engaged_with = w.athletes.filter(func(a): return a.role == 8)[0].id
+	w.phase = World.Phase.LIVE
+	w.fair_catch_id = w.athletes[9].id
+	var wr: int = w.athletes.find(w.athletes.filter(func(a): return a.role == 2)[0])   # a WR catches
+	var ol: int = w.athletes.find(w.athletes.filter(func(a): return a.role == 7)[0])   # an OL never reaches
+	var lb: int = w.athletes.find(w.athletes.filter(func(a): return a.role == 4)[0])
+	w.athletes[lb].engaged_with = w.athletes[8].id
+	w.athletes[lb].velocity = Vector2(0.0, 9.0)   # an engaged pair running together: no push (#372)
+	var at: Vector2 = w.athletes[wr].position
+	w.athletes[ol].position = at + Vector2(1.0, 0.0)
+	w.ball.state = Ball.State.IN_FLIGHT
+	w.ball.position = Vector3(at.x, at.y + 3.0, 2.0)
+	w.ball.velocity = Vector3(0.0, -15.0, -2.0)
+	var bits := PlayerNode.replay_bits(w)
+	for i in 2:
+		r.capture(w, bits)
+	assert_eq(bits.size(), w.athletes.size())
+	assert_true(_flags(r, push) & Replay.F_PUSH != 0, "engaged blocker gets the push bit")
+	assert_eq(_flags(r, 0) & Replay.F_PUSH, 0, "unengaged athlete has no push bit")
+	assert_eq(_flags(r, lb) & Replay.F_PUSH, 0, "engaged at sprint pace: no push bit")
+	assert_true(_flags(r, 9) & Replay.F_FAIR_CATCH != 0, "fair-catch signaler gets the signal bit")
+	assert_eq(_flags(r, push) & Replay.F_FAIR_CATCH, 0, "only the signaler")
+	assert_true(_flags(r, wr) & Replay.F_CATCH != 0, "receiver under the pass gets the reach bit")
+	assert_eq(_flags(r, ol) & Replay.F_CATCH, 0, "a lineman never reaches")
+	w.athletes[wr].engaged_with = w.athletes[ol].id
+	w.athletes[wr].velocity = Vector2(0.0, 9.0)   # too fast to push, so only the engaged gate stops the reach
+	assert_eq(PlayerNode.replay_bits(w)[wr], 0, "an engaged receiver doesn't reach")
+	w.athletes[wr].engaged_with = -1
+	w.ball.state = Ball.State.HELD
+	assert_eq(Array(PlayerNode.replay_bits(w)).count(Replay.F_CATCH), 0, "nothing in the air: no catch bits")
+	for a in w.athletes:
+		a.engaged_with = -1
+	assert_eq(PlayerNode.replay_bits(w).size(), 0, "nobody pushing or reaching: no allocation")
+	w.phase = World.Phase.DEAD
+	for i in 2:
+		r.capture(w)
+	assert_eq(_flags(r, 9) & Replay.F_FAIR_CATCH, 0, "the signal shows only while the ball is live")
+
+## Files from before #374 (v2) carry only the dive / lying bits; they load and replay with the new bits off.
+func test_v2_file_loads_with_new_bits_off() -> void:
+	var path := "user://test_replay_v2.replay"
+	var f := FileAccess.open_compressed(path, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	f.store_var({"version": 2, "meta": {}, "plays": [{"start": 0, "end": 1, "label": "old"}],
+		"frames": [PackedFloat32Array([1, 0, 0, 0, 5.0, 6.0, 2.0]), PackedFloat32Array([1, 0, 0, 0, 7.0, 6.0, 1.0])]})
+	f.close()
+	var r := Replay.new()
+	assert_true(r.load_file(path))
+	assert_eq(_flags(r, 0, 0), Replay.F_GROUNDED)
+	assert_eq(_flags(r, 0, 1), Replay.F_DIVING)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 func test_plays_bracketed() -> void:
 	var s := _rec()
@@ -197,3 +281,27 @@ func test_frame_step_progress_and_old_files() -> void:
 	r.plays = [{"start": 0, "end": 10, "label": "Play 1 - tackle"}]
 	assert_eq(r.highlights(), [])
 	assert_eq(r.next_highlight(), -1)
+
+func test_recording_a_later_play_preserves_the_paused_clip() -> void:
+	var s := _rec()
+	var w: World = s[0]
+	var r: Replay = s[2]
+	w.snap()
+	_play(w, r, 24)
+	w.event.emit("incomplete", {})
+	assert_true(r.clip_play(0, 0.5), "first play is available for instant replay")
+	r.paused = true
+	var clip_frame := r.time
+	var clip_end := r.stop_at
+	var next_start := r.frames.size()
+
+	w.setup_formation(25.0)
+	w.snap()
+	_play(w, r, 26)
+	w.event.emit("incomplete", {})
+	assert_eq(r.frames.size(), next_start + 13, "next play records at 30 Hz")
+	assert_eq(r.plays[1]["start"], next_start, "second play starts at its own first frame")
+	assert_eq(r.plays[1]["end"], next_start + 13, "second play closes after its own frames")
+	r.advance(DT)
+	assert_eq(r.time, clip_frame, "earlier instant replay stays paused")
+	assert_eq(r.stop_at, clip_end, "the earlier clip keeps its original end")

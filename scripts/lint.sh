@@ -17,5 +17,7 @@ if [ -n "$hits" ]; then echo "$hits"; echo "LINT FAIL: create meshes/materials v
 # Perf rule 2: the sim stays engine-free (no nodes/scenes/rendering) so it is testable, deterministic and server-safe.
 hits=$(grep -nE "extends Node|get_tree\(\)|RenderingServer|Input\.|OS\.get_ticks|Time\.get_ticks|randf\(|randi\(" src/sim/*.gd || true)
 if [ -n "$hits" ]; then echo "$hits"; echo "LINT FAIL: src/sim must be pure RefCounted, deterministic, no engine/time/random calls"; fail=1; fi
+# Rule 3: file-size ratchet. Big shared files are where merge conflicts come from (scripts/size_budget.txt).
+bash scripts/size_check.sh || fail=1
 [ $fail -eq 0 ] && echo "LINT RULES PASS"
 exit $fail

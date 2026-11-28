@@ -26,6 +26,11 @@ Adopted 2026-11-25 (#1). Old letter ids (`B09`, `C05`, `D05`…) resolve via `do
 gh issue list --label type:bug --search "-label:status:in-progress -label:status:blocked -label:status:needs-decision sort:created-asc"
 gh issue list --label P0      --search "-label:status:in-progress -label:status:blocked -label:status:needs-decision sort:created-asc"
 
+# Read the issue and its discussion before claiming. Plain `gh issue view N` / `--comments` (and `gh pr view N`)
+# fail with "GraphQL: Projects (classic) is being deprecated ... (repository.issue.projectCards)"; ask for --json fields instead
+gh issue view 12 --json number,title,state,labels,body,comments -q '"#\(.number) \(.title) [\(.state)] \([.labels[].name] | join(", "))", .body, (.comments[] | "--- \(.author.login): \(.body)")'
+gh pr view 34 --json number,title,state,body,comments -q '"#\(.number) \(.title) [\(.state)]", .body, (.comments[] | "--- \(.author.login): \(.body)")'
+
 # Claim (label + comment naming session and branch/worktree)
 gh issue edit 12 --add-label status:in-progress
 gh issue comment 12 --body "Claim: <session/agent>, branch \`<branch>\` (worktree \`~/Coding/football-game-<topic>\`)."
@@ -39,6 +44,8 @@ gh issue create --title "<what's wrong / what to add>" --label "type:bug,P1,area
 # Ship → open a PR that closes the issue on merge (the owner reviews and merges; never merge it yourself)
 gh pr create --title "<title> (#12)" --body "Closes #12. <what/why>. Tests: <check.sh counts>. Docs: <files>. Follow-ups: #61, #62."
 gh issue comment 12 --body "PR #<M> open for review."
+# `gh pr edit` hits the same projectCards error; change a PR's title/body through the REST API instead
+gh api -X PATCH repos/bpenwell/CraterBowl/pulls/<M> -f body="$(cat body.md)"
 
 # Partial ship → keep it open, narrow it
 gh issue edit 12 --remove-label status:in-progress && gh issue comment 12 --body "Part 1 shipped in <sha>; remaining: ..."

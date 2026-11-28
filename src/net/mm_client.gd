@@ -3,6 +3,7 @@ extends Node
 
 signal queued(ok: bool, n: int)
 signal host_match(settings: Dictionary)
+signal host_cancelled
 signal join_match(code: String)
 signal lobbies(list: Array)
 signal registered(ok: bool)
@@ -60,6 +61,12 @@ func unregister_lobby() -> void:
 func send_hosting(code: String) -> void:
 	_send({"k": "hosting", "code": code})
 
+## The original party has already been re-queued without this host.
+func retry_as_solo() -> void:
+	_req["party"] = ""
+	_req["party_size"] = 1
+	_send(_req)
+
 func _send(msg: Dictionary) -> void:
 	api.send_bytes(var_to_bytes(msg), 1, MultiplayerPeer.TRANSFER_MODE_RELIABLE, 0)
 
@@ -84,3 +91,5 @@ func _on_packet(from: int, bytes: PackedByteArray) -> void:
 				host_match.emit(msg)
 			elif msg.get("role", "") == "join":
 				join_match.emit(str(msg.get("code", "")))
+			elif msg.get("role", "") == "cancel":
+				host_cancelled.emit()

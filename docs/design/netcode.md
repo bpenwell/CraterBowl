@@ -61,10 +61,10 @@ see when hosting, joining, queueing) lives in `docs/features/` (online play). La
 | `act` | C→S | reliable, ch 0 | `act` (action dict) | sender has an athlete; `P.is_action(act)` (Dictionary with a String `a`, else dropped); queued as `[peer, aid, act]`, fields validated when applied |
 | `lact` | C→S | reliable, ch 0 | `act` = `{"a":"ready"}` / `{"a":"name","n":…}` / `{"a":"seat","s":…}` (queue matches, #59) / `{"a":"id","i":…}` (install id, 16–32 hex chars, #102) | sender is in `lobby.players`; `act` is a Dictionary |
 | `refused` | S→C | reliable, ch 0 | `why` (reason text), `v` (server protocol version, only on a version mismatch) | from peer 1; cut to 120 chars. Client stores `refused_reason` (and `version_refused` when `v` is present), emits `refused`, closes its peer and ignores later packets |
-| `welcome` | S→C | reliable, ch 0 | `aid`, `size`, `mode` | from peer 1; `aid` must index an athlete, `size` is 3, 5 or 7 (default 7), and `mode` is classic (default) or chaosball. Invalid fields leave the current assignment intact |
+| `welcome` | S→C | reliable, ch 0 | `aid`, `size`, `mode`, `v` (host's protocol version, #224) | from peer 1; `P.host_version_refusal(v)` must be `""`, else the client refuses the host (see [Version handshake](#version-handshake-165)); `aid` must index an athlete, `size` is 3, 5 or 7 (default 7), and `mode` is classic (default) or chaosball. Invalid fields leave the current assignment intact |
 | `snap` | S→all | unreliable-ordered, ch 1, 30 Hz | see Snapshots | from peer 1; tick `t` > last seen |
 | `ev` | S→all | reliable, ch 0 | `n` (event name), `d` | from peer 1; `d` forced to Dictionary |
-| `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()` | from peer 1; `s` is a Dictionary |
+| `lobby` | S→all | reliable, ch 0 | `s` = `lobby.to_dict()`, with host settings including boolean `pass_marker` (#108) | from peer 1; `s` is a Dictionary |
 
 `snap` and `ev` are only broadcast once at least one peer holds an athlete; `lobby` once any peer exists.
 The host re-broadcasts every world event from `main.gd:_on_world_event`, plus match-level `looks`,
@@ -75,6 +75,11 @@ Each client reads its own assignment from `welcome` to select the award. Match s
 award use the player ID at the time of each event, so a new occupant earns their own totals.
 For mixed builds, the host also includes a display-name entry when the name is unique. Clients
 can read the name entry from an older host.
+
+The `summary` event carries `lines` (the name-keyed `name POS: …` summary), `potg`, `teams`
+and, since #200 (protocol v2), `mine`: `{athlete id: ["POS: …", …]}`, each occupied seat's own
+lines by player id. A client shows `mine[my_id]` under "Your game", so a same-named player's lines
+never show up there.
 
 ## Validation
 
@@ -94,6 +99,8 @@ can read the name entry from an older host.
   `flip_play`, `handoff`, `timeout` (no args); `dash`/`spin` (finite `dir`, clamped); `throw` (finite
   target `t`, finite power `p` clamped 0–1, `lob` bool); `try` (`n` ∈ {1,2}); `play` (name in
   `Routes.PLAYBOOK`/`RUN_PLAYS`); `defense` (in `DefensivePlaybook.CALLS`); `route` (in `Routes.ROUTES`).
+  The `formation` action takes the formation index `f` (Balanced 0, Twins Right 1, #345). The host allows it
+  for the offensive QB before a Classic scrimmage snap and sends the new wideout positions in its ordinary snapshots.
   The kicking actions are `kick` (finite target `t` and power `p` clamped to 0–1),
   `kick_call` (`k` is `""`, `"punt"` or `"fg"`), and `toss` (`c` is `"receive"` or `"kick"`).
   Other actions return `{}`, including legacy `team` and `pick` requests.
@@ -126,14 +133,23 @@ new actions rejected as unknown, a different lobby shape).
   client shows it on its join screen (without the "bigger match" hint, which is only for capacity).
   A peer that sends no hello within `HELLO_TIMEOUT` (5 s) is a build from before the handshake and
   is refused with "you have an older build". Those builds already understand `refused` (#54).
+- **Client side (#224).** A host from before #165 never reads `hello` and welcomes everyone, so the
+  host also puts its `v` on `welcome` and the client checks it with `Protocol.host_version_refusal`.
+  A `welcome` with no int `v` or a different one is handled like a `refused` packet carrying `v`:
+  `refused_reason` set, `version_refused` true, `refused` emitted, the client hangs up and shows the
+  reason on its join screen, never seated. Adding `v` to `welcome` needed no `VERSION` bump: older
+  clients ignore the extra key and nothing else changed, so a v3 client from before #224 still
+  plays a v3 host from after it, and the reverse.
 - **Matchmaker.** `mm_client` puts `v` on `enq`. `mm_server` answers a mismatch (or a missing `v`)
   with `{"k":"refused","why":…,"v":…}` and doesn't queue the player. `mm_client` emits `refused` and
   hangs up, and `main.gd:_queue_up` sends the player back to the menu with the reason as the status.
 - **Reasons** (`Protocol.version_refusal`, ≤ 120 chars): older client → `Update Crater Bowl to play
   online (server is vX, you have vY)`; newer client → `This server runs an older Crater Bowl (server
-  is vX, you have vY)`; no version → `…(server is vX, you have an older build)`.
-- **Not covered yet.** A new client joining a pre-#165 host isn't checked (that host welcomes it
-  without reading `hello`; #224). The server browser (`list`, `register`) is not version-aware, and
+  is vX, you have vY)`; no version → `…(server is vX, you have an older build)`. The client-side
+  `Protocol.host_version_refusal` says the same from the client's side (`server is an older build`
+  when the welcome has no `v`).
+- **Not covered yet.** A pre-#165 *lobby* host only sends `welcome` at kickoff, so the client sits in
+  its lobby until then (#317). The server browser (`list`, `register`) is not version-aware, and
   the matchmaker refuses rather than queueing each version separately during a rollout (#222).
 
 ### When to bump `Protocol.VERSION`
@@ -162,11 +178,12 @@ Whether CI should enforce the bump is #223; today it's a review rule.
 |---|---|
 | `t` | server tick (`main.gd:net_tick`) |
 | `a` | `PackedFloat32Array`, 7 per athlete: pos x/y, vel x/y, facing x/y, stamina |
-| `r` | `PackedInt32Array`, 3 per athlete: role, flags (DIVE 1, GROUND 2, LOCK 4, BLOCK 8, SPIN 16), team |
+| `r` | `PackedInt32Array`, 3 per athlete: role, flags (DIVE 1, GROUND 2, LOCK 4, BLOCK 8, SPIN 16, SPIN_LEFT 32; bits 8+: jump time left in ms, #379), team |
 | `moves` | 2 per athlete: `move_charge`, `move_t` |
 | `b` | ball: state, holder, pos xyz, vel xyz |
 | `d`, `s`, `c`, `to` | downs (offense, down, los, first-down y), score, clock (half, remaining, play clock, final, quarter, quarter length in seconds), timeouts |
-| `ph`, `off`, `los`, `fpt`, `pt`, `ms`, `tp` | world phase, offense team, LOS, forward pass thrown, last possession, match state, try points |
+| `ph`, `off`, `los`, `pt`, `ms`, `tp` | world phase, offense team, LOS, last possession, match state, try points |
+| `pf` | Pass flags. Bit 0 tracks whether a forward pass has been thrown. Bit 1 tracks whether a runner has carried the ball across the LOS this down (#312). |
 | `pl`, `rt`, `dc`, `rf`, `hc`, `cs` | play name, route index per athlete (-1 none), defensive call, run flipped, handoff cooldown, Chaosball streak/hold |
 | `ack` | athlete id → last input `seq` the server consumed (`NetSession.acks()`) |
 
@@ -232,8 +249,8 @@ messages are reliable on channel 0.
 | `enq` | C→MM | `mode` (casual/competitive), `size`, `rating`, `name`, `party`, `party_size`, `game`, `seat`, `v` (protocol version, #165) → `mm.enqueue`, or `refused` on a version mismatch |
 | `refused` | MM→C | `why`, `v`: the client's version doesn't match (#165); the client hangs up and shows `why` on the menu |
 | `queued` | MM→C | `ok`, `n` (queue length) |
-| `match` | MM→C | `role:"host"` + `mode`, `size`, `expected`, `seats` (seat token → team), `teams` (name → team, legacy), `game`; or `role:"join"` + `code` |
-| `hosting` | C→MM | `code` from the elected host → MM sends `match/join` to the others |
+| `match` | MM→C | `role:"host"` + `mode`, `size`, `expected`, `seats` (seat token → team), `teams` (name → team, legacy), `game`; `role:"join"` + `code`; or `role:"cancel"` to an elected host whose order expired (#308) |
+| `hosting` | C→MM | `code` from the elected host → MM sends `match/join` to the others when the code arrives before the order deadline |
 | `list` / `lobbies` | C↔MM | server browser: `registry.listing()` + `queued` count |
 | `register` / `registered`, `unregister` | C↔MM | public lobby advertising |
 
@@ -285,7 +302,11 @@ messages are reliable on channel 0.
 - Clients validate snapshot shape and accept integer match XP from 0 through 10,000. Malformed
   achievement context or XP leaves the local profile untouched. The host remains the authority on
   match outcomes and awards. Ratings and leaderboards live only on the host's disk (#28).
-- No reconnect, leaver handling or forfeit; a client doesn't react to losing the host (#17).
+- No reconnect, leaver handling or forfeit (#17). Losing the host ends the session for a client: ENet's
+  `server_disconnected` or, once seated in the match, the host-silence watchdog (#86: banner after
+  `STALL_AFTER` 2 s, drop after `DROP_AFTER` 4 s) emits `host_lost`, and the client returns to the menu
+  with "Host disconnected" (#56). In the lobby only ENet's timeout applies (#175). A client that leaves
+  is replaced by a bot. See [Peer / athlete assignment](#peer--athlete-assignment).
 - Prediction covers the local athlete's free movement only (#45). No snapshot deltas or compression.
 - No message rate limits on game or matchmaker sockets.
 
@@ -302,7 +323,6 @@ messages are reliable on channel 0.
 - #20 C14 Spectators
 - #26 C20 Rematch and keep-the-lobby
 - #55 No rate limits on client actions or matchmaker messages
-- #56 Client doesn't detect losing the host
 - #57 UPnP port mapping is never removed after hosting
 - #60 Client trusts host snapshots and awards
 - #61 Tick rate (60 Hz) hard-coded in several places
