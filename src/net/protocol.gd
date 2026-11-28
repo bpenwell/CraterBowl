@@ -3,6 +3,7 @@ extends RefCounted
 
 const T := preload("res://src/sim/tuning.gd")
 const Routes := preload("res://src/sim/routes.gd")
+const World := preload("res://src/sim/world.gd")
 const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
 const DIVE_FLAG := 1
 const GROUND_FLAG := 2
@@ -277,6 +278,9 @@ static func sanitize_action(act) -> Dictionary:
 		"play":
 			var p = act.get("p", "")
 			return {"a": "play", "p": p} if p is String and (Routes.PLAYBOOK.has(p) or Routes.RUN_PLAYS.has(p)) else {}
+		"formation":
+			var f = act.get("f")
+			return {"a": "formation", "f": f} if World.valid_formation(f) else {}
 		"defense":
 			var id = act.get("p", "")
 			return {"a": "defense", "p": id} if id is String and DefensivePlaybook.CALLS.has(id) else {}
@@ -333,6 +337,8 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 			return m.choose_toss(ath.team, act["c"])
 		"play":
 			return ath.team == w.offense_team and w.phase == w.Phase.PRESNAP and w.call_play(act["p"])
+		"formation":
+			return w.choose_formation(ath, act["f"])
 		"recall_call":
 			return w.recall_call(ath.team)
 		"flip_play":
@@ -347,7 +353,7 @@ static func apply_action(m, athlete_id: int, action) -> bool:
 ## Wire/sim compatibility version. Bump it in the same PR as any change to the wire format
 ## (message keys or fields, snapshot layout, action shapes) or to sim rules a host and client
 ## must agree on (src/sim). Rule and reasons: docs/design/netcode.md "Version handshake".
-const VERSION := 9
+const VERSION := 10
 const VERSION_FILE := "res://VERSION"
 const VERSION_FLAG := "--protocol-version="   # debug: pretend to be another version (net_test.sh)
 

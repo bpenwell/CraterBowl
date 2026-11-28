@@ -15,6 +15,9 @@ defenders. Line play is in [line-play.md](line-play.md); scoring, tries and turn
 - Offense buttons: Verticals, Slants, Mesh, Curls, Flood, Deep Shot, plus Inside Zone and Outside Sweep when the
   formation has an RB and the mode is classic (5v5 and 7v7). Also **Repeat last** (recall your team's previous call)
   and **Flip play** (swap the two WRs' routes; on a run, mirror the lane).
+- The offense's QB can choose **Balanced** or **Twins Right** before a Classic scrimmage snap in 3v3, 5v5 and
+  7v7. Twins Right puts both wideouts on the right and updates team route art while the called routes stay with
+  their players. Each down begins Balanced. The formation picker is hidden on kick plays and in Chaosball.
 - To audible, select another play before the snap. The highlighted card and the offense's route art
   follow the new call. Teammates see the same assignments, and the call locks when the ball is
   snapped (#346).
@@ -84,6 +87,9 @@ the last segment's direction; comeback routes (CURL) settle instead of backpedal
 - Inside Zone hits an interior gap; Outside Sweep goes wide. Bots flip the sweep automatically.
 
 ## Design decisions
+- The formation picker changes receiver alignment independently of the play call (#345). Balanced reuses the
+  original home spots. Twins Right scales both receiver marks to field width and keeps their depth and role.
+  Online players see the host's alignment through the existing athlete positions.
 
 - **Crossing the line commits to the run (#312).** The same down-level flag lifts the blocking zone and closes the
   first-person passing view and aim preview. Retreating behind the line keeps the play live as a run. Disabling the

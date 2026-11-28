@@ -99,6 +99,8 @@ never show up there.
   `flip_play`, `handoff`, `timeout` (no args); `dash`/`spin` (finite `dir`, clamped); `throw` (finite
   target `t`, finite power `p` clamped 0–1, `lob` bool); `try` (`n` ∈ {1,2}); `play` (name in
   `Routes.PLAYBOOK`/`RUN_PLAYS`); `defense` (in `DefensivePlaybook.CALLS`); `route` (in `Routes.ROUTES`).
+  The `formation` action takes the formation index `f` (Balanced 0, Twins Right 1, #345). The host allows it
+  for the offensive QB before a Classic scrimmage snap and sends the new wideout positions in its ordinary snapshots.
   The kicking actions are `kick` (finite target `t` and power `p` clamped to 0–1),
   `kick_call` (`k` is `""`, `"punt"` or `"fg"`), and `toss` (`c` is `"receive"` or `"kick"`).
   Other actions return `{}`, including legacy `team` and `pick` requests.

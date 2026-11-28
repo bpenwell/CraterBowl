@@ -52,6 +52,10 @@ const THROW_INHERIT := 0.3      # fraction of thrower velocity added to ball
 const PLAYER_PASS_POWER := 0.68
 const THROW_CHARGE_TIME := 0.9  # POV passer: seconds of hold to full power (distance)
 
+# Offensive alignment, as fractions of the field width.
+const TWINS_RIGHT_INNER_X := 0.68
+const TWINS_RIGHT_OUTER_X := 0.84
+
 # Catching
 const CATCH_RADIUS := 1.2
 const CATCH_MIN_HEIGHT := 0.3

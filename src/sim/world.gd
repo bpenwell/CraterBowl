@@ -15,6 +15,8 @@ const DefensivePlaybook := preload("res://src/sim/defensive_playbook.gd")
 const Penalties := preload("res://src/sim/penalties.gd")
 
 enum Phase { PRESNAP, LIVE, DEAD }
+enum Formation { BALANCED, TWINS_RIGHT }
+const FORMATION_NAMES := ["Balanced", "Twins Right"]
 
 signal event(name: String, data: Dictionary)
 
@@ -328,6 +330,32 @@ func receivers_in_order() -> Array:
 	if rb:
 		wrs.append(rb)
 	return wrs
+
+static func valid_formation(value) -> bool:
+	return value is int and value >= 0 and value < FORMATION_NAMES.size()
+
+func can_choose_formation(a: Athlete) -> bool:
+	return phase == Phase.PRESNAP and kick_play.is_empty() and not is_chaos() and a != null \
+		and a.team == offense_team and a.role == Athlete.Role.QB
+
+## The original left wideout lines up right of center only in Twins Right. Read the
+## received positions on clients, so a formation change needs no extra snapshot field.
+func offensive_formation() -> int:
+	var middle := field.width * 0.5
+	for a in athletes:
+		if a.team == offense_team and a.role == Athlete.Role.WR and a.home_x < middle:
+			return Formation.TWINS_RIGHT if a.position.x > middle else Formation.BALANCED
+	return Formation.BALANCED
+
+func choose_formation(by: Athlete, formation: int) -> bool:
+	if not can_choose_formation(by) or not valid_formation(formation):
+		return false
+	var middle := field.width * 0.5
+	for a in athletes:
+		if a.team == offense_team and a.role == Athlete.Role.WR:
+			var twins_x := T.TWINS_RIGHT_INNER_X if a.home_x < middle else T.TWINS_RIGHT_OUTER_X
+			a.position.x = a.home_x if formation == Formation.BALANCED else field.width * twins_x
+	return true
 
 func has_run_back() -> bool:
 	return not is_chaos() and find_role(offense_team, Athlete.Role.RB) != null

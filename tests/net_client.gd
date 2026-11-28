@@ -50,6 +50,8 @@ var defense_recall_seen := false
 var sent_timeout := false
 var got_timeout_event := false
 var timeout_confirmed := false
+var requested_twins := false
+var saw_twins := false
 var requested_slants := false
 var called_run := false
 var snapped_run := false
@@ -267,6 +269,7 @@ func _physics_process(_dt: float) -> bool:
 		check(equipped_number == "88", "my equipped #88 round-tripped through the host (%s)" % equipped_number)
 		check(pick_rejected, "legacy slot request preserves the host assignment")
 		check(timeout_confirmed and got_timeout_event, "remote T decrements only its team's timeouts and broadcasts the event")
+		check(saw_twins, "remote QB's Twins Right choice returns in the host lineup")
 		check(requested_slants and called_run, "remote QB audibles from Slants to Inside Zone in the play picker")
 		check(remote_handoff_confirmed, "client QB hands off through G and sees the host's RB possession")
 		check(remote_handoff_confirmed and main.controlled_id == aid, "online QB keeps the same athlete after the handoff")
@@ -309,7 +312,12 @@ func _test_remote_handoff() -> void:
 		sent_timeout = true
 	if sent_timeout and main.series.clock.timeouts == [3, 2]:
 		timeout_confirmed = true
-	if timeout_confirmed and w.phase == w.Phase.PRESNAP:
+	if timeout_confirmed and w.phase == w.Phase.PRESNAP and not requested_twins:
+		main.do_action({"a": "formation", "f": w.Formation.TWINS_RIGHT})
+		requested_twins = true
+	if requested_twins and w.phase == w.Phase.PRESNAP and w.offensive_formation() == w.Formation.TWINS_RIGHT:
+		saw_twins = true
+	if saw_twins and w.phase == w.Phase.PRESNAP:
 		if not requested_slants:
 			requested_slants = _press_play_card("Slants")
 		elif not called_run and w.play_name == "Slants" and w.route_of.values().has("SLANT"):
