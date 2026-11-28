@@ -475,7 +475,7 @@ func _near_catch_point() -> bool:
 
 ## Catch pose (#246): ready stance as the pass comes in, hands to the ball as it closes.
 func _update_catch(delta: float, can_reach: bool, dive_reach: bool) -> void:
-	var chest := global_position + Vector3.UP * CATCH_HEIGHT
+	var chest := global_position + Vector3.UP * (CATCH_HEIGHT + jump_pose.lift())   # in a jump the chest rides up (#361)
 	var catching: bool = (replay_flags & Replay.F_CATCH) != 0 and look_node != null if replay_flags >= 0 \
 		else _catch_wanted and can_reach and _pass_in_air() \
 		and look_node.global_position.distance_to(chest) < CATCH_LEAD * world.ball.velocity.length()
@@ -673,7 +673,7 @@ static func replay_bits(world) -> PackedByteArray:
 			bits = Replay.F_PUSH
 		elif flying:
 			var r := int(a.role)
-			var chest := Vector3(a.position.x, a.position.y, CATCH_HEIGHT)
+			var chest := Vector3(a.position.x, a.position.y, CATCH_HEIGHT + a.jump_height())   # as live (#361)
 			if a.position.distance_to(cp) < CATCH_RANGE and chest.distance_to(b.position) < CATCH_LEAD * b.velocity.length() \
 					and watches_ball(a.team == world.offense_team, r >= 0 and r < ROLE_NAMES.size() and ROLE_NAMES[r] in LINEMEN,
 						a.engaged_with >= 0 or a.blocking, false, Ball.State.IN_FLIGHT, chest.distance_to(b.position)):
