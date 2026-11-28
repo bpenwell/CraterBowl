@@ -119,6 +119,8 @@ func think(world, human_ids: Array) -> Dictionary:
 		and c.position.y <= world.los_y and not world.forward_pass_thrown and (world.is_chaos() or not world.ball_crossed_los) \
 		and (not run_call or exchange)
 	var landing := _landing_point(world) if in_air else Vector2.INF
+	if in_air:
+		_contest_jumps(world, human_ids)
 	if world.kick_live:
 		return _kick_coverage(world, human_ids, landing)
 	var pre_kick: bool = c != null and c.team == world.offense_team and world.kick_play in ["punt", "fg"] and not world.kicked
@@ -264,6 +266,24 @@ func _cover(world, a, qb) -> Dictionary:
 	var deep := Vector2(world.field.width / 2.0 + (a.home_x - world.field.width / 2.0) * 0.5, world.los_y + T.AI_DEEP_ZONE)
 	var tz: Vector2 = deep - a.position
 	return {"dir": tz.normalized() if tz.length() > 0.5 else Vector2.ZERO, "sprint": false}
+
+## Bot defenders jump for a pass that will clear a standing catch but not their jump (#435):
+## jumping now puts their feet at the peak (JUMP_TIME / 2) as the ball arrives, and they keep their
+## velocity. Offense doesn't: a high ball over a receiver is meant for someone deeper.
+func _contest_jumps(world, human_ids: Array) -> void:
+	var t := T.JUMP_TIME * 0.5
+	var b = world.ball
+	var z: float = b.position.z + b.velocity.z * t - 0.5 * world.gravity() * t * t
+	if z <= T.CATCH_MAX_HEIGHT or z > T.CATCH_MAX_HEIGHT + T.JUMP_HEIGHT:
+		return
+	var bp := Vector2(b.position.x + b.velocity.x * t, b.position.y + b.velocity.y * t)
+	if not defense_enabled:
+		return
+	for a in world.athletes:
+		if a.team == world.offense_team or human_ids.has(a.id):
+			continue
+		if (a.position + a.velocity * t).distance_to(bp) <= T.CATCH_RADIUS + T.CONTEST_MARGIN:
+			world.jump(a.id)
 
 ## Where a thrown ball will descend through catch height.
 func _landing_point(world) -> Vector2:

@@ -69,7 +69,8 @@ Passing, handoff and play-call keys are in [offense.md](offense.md).
   like any block (jumping into a blocker gets you blocked). You can't jump while engaged.
 - Online, the client doesn't predict the takeoff yet: your jump starts when the host's snapshot arrives, one round trip
   after the press (client prediction of moves is #45).
-- Bots don't jump yet (#208). Instant replays don't show the jump yet (#380).
+- Bot defenders jump to contest a pass over their heads ([bots.md](bots.md), #435); bot offense doesn't jump.
+  Instant replays don't show the jump yet (#380).
 - For code that blends into a jump (#361): `Athlete.is_jumping()`, `jump_progress()` (0 takeoff to 1 landing),
   `jump_height()` (yards) and `jump_t` (seconds left). The view plays the UAL `Jump_Start`, `Jump` (the looping tuck) and
   `Jump_Land` clips and lifts the body on its own display-rate clock.
