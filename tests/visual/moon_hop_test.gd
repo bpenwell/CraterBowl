@@ -37,12 +37,14 @@ func _run() -> void:
 	var cam := Camera3D.new()
 	vp.add_child(cam)
 	cam.look_at_from_position(Vector3(0.6, 1.4, -3.4), Vector3(0, 1.1, 0))
+	v.set_process(false)   # no sim here: drive the clip choice directly, then hold a frame
 	v.celebrate("hop")
-	await process_frame
-	await process_frame
+	v._choose_anim(0.0, false)
 	check(v._cur == v.HOP_CLIP, "the hop plays the fist pump (%s)" % v._cur)   # arms measured in test_athlete_pose.gd
+	v.anim.advance(0.3)   # past the cross-fade: pausing mid-blend would freeze it on the old clip
 	v.anim.seek(0.6, true)
 	v.anim.pause()
-	await process_frame
+	for i in 3:
+		await process_frame
 	await capture("moon-hop")
 	finish()
