@@ -41,7 +41,7 @@ func _run() -> void:
 	game.input_override = Vector2(0, 1)   # run it in
 	var view = game.views[qb.id]
 	var scored := -1
-	var celebrated := 0     # frames of celebration seen
+	var longest := 0.0      # the most celebration time left seen (it starts at 1.5 s)
 	var cut := 0            # frames the replay was on while the celebration still played
 	var replay_after := -1  # frame the replay started
 	var shot := false
@@ -54,7 +54,7 @@ func _run() -> void:
 		if scored < 0:
 			continue
 		if view.celebrate_t > 0.0:
-			celebrated += 1
+			longest = maxf(longest, view.celebrate_t)
 			if game.replay_active:
 				cut += 1
 			elif not shot and view.celebrate_t < 0.3:
@@ -68,9 +68,10 @@ func _run() -> void:
 				cam.queue_free()
 		if game.replay_active and replay_after < 0:
 			replay_after = frame
+			check(view.celebrate_t == 0.0, "the celebration has finished when the replay starts (%.2f s left)" % view.celebrate_t)
 			break
 	check(scored >= 0 and game.last_whistle.contains("TOUCHDOWN"), "touchdown (%s)" % game.last_whistle)
-	check(celebrated > 80, "the celebration plays (%d frames)" % celebrated)
+	check(longest > 1.3, "the celebration plays from the top (%.2f s)" % longest)
 	check(cut == 0, "the replay doesn't cut in on it (%d frames under the replay)" % cut)
 	check(replay_after > 0, "the highlight replay still plays, after it")
 	finish()

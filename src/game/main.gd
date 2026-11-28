@@ -1654,7 +1654,7 @@ func _step_authoritative(delta: float, my_input: Dictionary) -> void:
 			return
 	elif world.phase == World.Phase.DEAD and auto_next and not series.is_final():
 		dead_t += delta
-		if dead_t >= NEXT_PLAY_DELAY and not celebrating():
+		if dead_t >= NEXT_PLAY_DELAY and not (net == null and celebrating()):   # online: not on local view state
 			next_play()
 	var humans: Array = [controlled_id] + roster.humans()
 	if is_server():
@@ -1721,8 +1721,8 @@ func toggle_replay() -> bool:
 	replay_active = true
 	return true
 
-## A touchdown celebration is still to play or playing on some view: the highlight replay
-## and the next play wait for it (the celebration is view-only and lasts 1.5 s).
+## A touchdown celebration is still to play or playing on some view: offline, the highlight
+## replay and the next play wait for it (the celebration is view-only and lasts 1.5 s).
 func celebrating() -> bool:
 	for v in views:
 		if v.celebrate_t > 0.0:
