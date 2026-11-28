@@ -11,6 +11,7 @@ const Football := preload("res://src/game/art/football.gd")
 const Overlay := preload("res://src/game/overlay.gd")
 const LosBarrier := preload("res://src/game/art/los_barrier.gd")
 const FieldArt := preload("res://src/game/art/field_art.gd")
+const ImpactDust := preload("res://src/game/art/impact_dust.gd")
 const KickArt := preload("res://src/game/kick_art.gd")
 const Athlete := preload("res://src/sim/athlete.gd")
 const Passing := preload("res://src/sim/passing.gd")
@@ -26,6 +27,7 @@ var trail_mesh := ImmediateMesh.new()
 var trail: MeshInstance3D
 var trail_pts: Array = []
 var chains: Node3D
+var impact_dust: ImpactDust
 var down_box: Label3D
 var stick_a: Node3D
 var stick_b: Node3D
@@ -45,6 +47,8 @@ var _period := 0         # #89: SWITCH ENDS banner on period change
 func _ready() -> void:
 	main = get_parent()
 	name = "Presentation"
+	impact_dust = ImpactDust.new()
+	add_child(impact_dust)
 	ring = _ground_quad("PlayerRing", 2.2, "res://src/game/art/ring.gdshader")
 	carrier_glow = _ground_quad("CarrierGlow", 1.8, "res://src/game/art/ring.gdshader")
 	(carrier_glow.material_override as ShaderMaterial).set_shader_parameter("color", Color(1.0, 0.8, 0.3, 0.7))
@@ -197,7 +201,7 @@ func on_event(n: String, d: Dictionary) -> void:
 		"tackle", "sack":
 			var id: int = d.get("carrier", d.get("by", -1))
 			var at := _athlete_pos(id)
-			_dust(at, 22)
+			impact_dust.spawn(at, 22, main.replay_active)
 			shake = maxf(shake, 0.35)
 			if id >= 0 and id < main.views.size():
 				if d.has("carrier"):
@@ -223,7 +227,7 @@ func on_event(n: String, d: Dictionary) -> void:
 			if _pass_thrower >= 0 and _pass_thrower < main.views.size():
 				main.views[_pass_thrower].throw_release()
 		"breakup":
-			_dust(_athlete_pos(int(d.get("by", -1))), 8)
+			impact_dust.spawn(_athlete_pos(int(d.get("by", -1))), 8, main.replay_active)
 	overlay.on_event(n, d)
 
 ## A tackled carrier's fall (tackle_fall.gd), from the collision: the tackler hits him at
@@ -262,37 +266,6 @@ func _athlete_pos(id: int) -> Vector3:
 		return main.views[id].global_position
 	var b = main.world.ball.position
 	return Vector3(b.x, 0, -b.y)
-
-func _dust(at: Vector3, amount: int) -> void:
-	var p := CPUParticles3D.new()
-	p.one_shot = true
-	p.amount = amount
-	p.lifetime = 0.9
-	p.explosiveness = 0.95
-	p.direction = Vector3.UP
-	p.spread = 80.0
-	p.initial_velocity_min = 1.5
-	p.initial_velocity_max = 4.0
-	p.gravity = Vector3(0, -2.5, 0)   # low lunar gravity: dust hangs
-	p.scale_amount_min = 0.25
-	p.scale_amount_max = 0.6
-	var sm := SphereMesh.new()
-	sm.radius = 0.5
-	sm.height = 1.0
-	sm.radial_segments = 6
-	sm.rings = 3
-	p.mesh = sm
-	var m := Mats.flat(Color(0.75, 0.72, 0.68, 0.55))
-	m.vertex_color_use_as_albedo = true
-	p.material_override = m
-	var g := Gradient.new()
-	g.set_color(0, Color(0.8, 0.78, 0.74, 0.6))
-	g.set_color(1, Color(0.8, 0.78, 0.74, 0.0))
-	p.color_ramp = g
-	p.position = at + Vector3(0, 0.3, 0)
-	add_child(p)
-	p.emitting = true
-	get_tree().create_timer(1.5).timeout.connect(p.queue_free)
 
 func _fireworks() -> void:
 	var f = main.field
@@ -334,6 +307,7 @@ func _process(delta: float) -> void:
 	if main == null or main.world == null or main.views.is_empty():
 		return
 	var w = main.world
+	impact_dust.follow_replay(main.replay_active)
 	kick_art.update(main, w)   # before the ball: a kickoff ball stands on the tee
 	if not main.replay_active:
 		_update_ball(delta, w)
