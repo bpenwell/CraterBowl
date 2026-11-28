@@ -51,5 +51,16 @@ func test_unheld_dead_ball_falls_at_render_rate() -> void:
 	main.ball_view.free()
 	main.free()
 
+## #438: the live dust layer follows replay and ignores new effects while it is hidden.
+func test_impact_dust_uses_the_live_view() -> void:
+	var dust := preload("res://src/game/art/impact_dust.gd").new()
+	dust.follow_replay(true)
+	assert_true(not dust.visible, "existing impact dust is hidden in replay")
+	dust.spawn(Vector3.ZERO, 22, true)
+	assert_eq(dust.get_child_count(), 0, "live impacts do not create replay particles")
+	dust.follow_replay(false)
+	assert_true(dust.visible, "live view restores the dust layer")
+	dust.free()
+
 func _lines(log: String, key: String) -> String:
 	return " | ".join(Array(log.split("\n")).filter(func(l): return l.contains(key)))

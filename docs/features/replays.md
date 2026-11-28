@@ -90,6 +90,8 @@ post-game overview or the command line. Online skip votes, a free camera and cli
   (`fair_catch_id` while live).
 - Facing isn't recorded (#209): a replayed view turns to its motion, except while the recording has it pushing, when it holds
   its facing (as live).
+- Playback hides dust from live tackles and breakups. Live contacts can emit dust again as soon
+  as you return to the match (#438).
 - Only highlights auto-replay. Replaying every play would train players to skip.
 - No director AI picking cuts per frame: it needs a lot of tuning and belongs with the free-cam theater (#36).
 - The replay overlay is its own CanvasLayer (`process_priority` 100, after the match overlay). It finds match-overlay
